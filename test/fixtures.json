@@ -1,0 +1,97 @@
+[
+  {
+    "name": "空字符串",
+    "input": "",
+    "template": "",
+    "urls": []
+  },
+  {
+    "name": "普通题干",
+    "input": "根据题意填写答案。",
+    "template": "根据题意填写答案。",
+    "urls": []
+  },
+  {
+    "name": "只有域名的网址选项保留为文本",
+    "input": "http://example.com\nhttps://example.org\n选项三\n选项四",
+    "template": "http://example.com\nhttps://example.org\n选项三\n选项四",
+    "urls": []
+  },
+  {
+    "name": "图片链接后的中文标点",
+    "input": "请看 https://example.com/a.jpg，然后作答。",
+    "template": "请看 {{img}}，然后作答。",
+    "urls": ["https://example.com/a.jpg"]
+  },
+  {
+    "name": "逗号分隔多个链接",
+    "input": "https://example.com/a.png,https://example.org/b.jpg",
+    "template": "{{img}},{{img}}",
+    "urls": ["https://example.com/a.png", "https://example.org/b.jpg"]
+  },
+  {
+    "name": "两条链接直接粘连",
+    "input": "https://example.com/a.pnghttps://example.org/b.webp",
+    "template": "{{img}}{{img}}",
+    "urls": ["https://example.com/a.png", "https://example.org/b.webp"]
+  },
+  {
+    "name": "大写后缀与粘连单位",
+    "input": "电压 https://example.com/a.PNGmV",
+    "template": "电压 {{img}}mV",
+    "urls": ["https://example.com/a.PNG"]
+  },
+  {
+    "name": "图片扩展名后的下划线",
+    "input": "由 https://example.com/a.svg___ 可得",
+    "template": "由 {{img}}___ 可得",
+    "urls": ["https://example.com/a.svg"]
+  },
+  {
+    "name": "图片扩展名后查询串遵循当前切分规则",
+    "input": "https://example.com/a.png?size=100",
+    "template": "{{img}}?size=100",
+    "urls": ["https://example.com/a.png"]
+  },
+  {
+    "name": "同图重复出现时切分保留每一次",
+    "input": "https://example.com/a.gif + https://example.com/a.gif",
+    "template": "{{img}} + {{img}}",
+    "urls": ["https://example.com/a.gif", "https://example.com/a.gif"]
+  },
+  {
+    "name": "超星公式路径与粘连变量",
+    "input": "求导 https://mooc1.chaoxing.com/ananas/latex/p/123t+1，写出结果。",
+    "template": "求导 {{img}}t+1，写出结果。",
+    "urls": ["https://mooc1.chaoxing.com/ananas/latex/p/123"]
+  },
+  {
+    "name": "超星公式外层括号保留在题干",
+    "input": "观察 (https://mooc1.chaoxing.com/ananas/latex/p/123)，填写答案。",
+    "template": "观察 ({{img}})，填写答案。",
+    "urls": ["https://mooc1.chaoxing.com/ananas/latex/p/123"]
+  },
+  {
+    "name": "链接内部成对括号保留在链接",
+    "input": "(https://example.com/render?q=(x))",
+    "template": "({{img}})",
+    "urls": ["https://example.com/render?q=(x)"]
+  },
+  {
+    "name": "链接外层方括号留在题干",
+    "input": "[https://example.com/render]",
+    "template": "[{{img}}]",
+    "urls": ["https://example.com/render"]
+  },
+  {
+    "name": "后台 U/V/T 粘连样例的公开版本",
+    "input": "CV=-(https://example.com/formula.pngU/https://example.com/formula.pngV)T(https://example.com/formula.pngV/https://example.com/formula.pngT)U\nCV=(https://example.com/formula.pngU/https://example.com/formula.pngV)T(https://example.com/formula.pngV/https://example.com/formula.pngT)U\nCV=(https://example.com/formula.pngV/https://example.com/formula.pngT)U(https://example.com/formula.pngT/https://example.com/formula.pngU)V\nCV=-(https://example.com/formula.pngT/https://example.com/formula.pngU)V(https://example.com/formula.pngU/https://example.com/formula.pngV)T",
+    "template": "CV=-({{img}}U/{{img}}V)T({{img}}V/{{img}}T)U\nCV=({{img}}U/{{img}}V)T({{img}}V/{{img}}T)U\nCV=({{img}}V/{{img}}T)U({{img}}T/{{img}}U)V\nCV=-({{img}}T/{{img}}U)V({{img}}U/{{img}}V)T",
+    "urls": [
+      "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png",
+      "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png",
+      "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png",
+      "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png", "https://example.com/formula.png"
+    ]
+  }
+]
