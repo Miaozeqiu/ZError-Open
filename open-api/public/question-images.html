@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>题图识别 · ZError Open</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workbench.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="ZError Open 首页">
+        <span class="brand-icon" aria-hidden="true">Z</span>
+        <span>ZError <strong>Open</strong></span>
+      </a>
+      <nav class="site-nav" aria-label="页面导航">
+        <a href="/models"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg><span>模型配置</span></a>
+        <a href="/question-images" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 16 5-5 4 4 3-3 6 6M3 5h18v14H3z"/><circle cx="16" cy="9" r="1"/></svg><span>题图识别</span></a>
+        <a href="/website-experience"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg><span>网站经验</span></a>
+      </nav>
+    </aside>
+    <main class="workspace">
+      <div class="workspace-inner">
+        <header class="page-header">
+          <h1>题图识别</h1>
+          <div class="page-actions">
+            <a class="button button-secondary source-link" href="/v1/question-images/algorithm" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H7a2 2 0 0 0-2 2v3l-2 3 2 3v3a2 2 0 0 0 2 2h2m6-16h2a2 2 0 0 1 2 2v3l2 3-2 3v3a2 2 0 0 1-2 2h-2"/></svg><span>查看算法</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+            <a class="button button-secondary source-link" href="https://github.com/Miaozeqiu/ZError-Open/edit/main/src/algorithm.js" target="_blank" rel="noopener">
+              <span>编辑算法</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>
+            </a>
+            <a class="button button-secondary source-link" href="https://github.com/Miaozeqiu/ZError-Open/edit/main/test/fixtures.json" target="_blank" rel="noopener">
+              <span>编辑测试用例</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>
+            </a>
+          </div>
+        </header>
+        <div class="image-workspace">
+          <form id="image-form" class="image-editor">
+            <div class="panel-header">
+              <h2><label for="image-text">题目原文</label></h2>
+              <button id="insert-example" class="button button-secondary" type="button">填入示例</button>
+            </div>
+            <textarea id="image-text" rows="10" maxlength="8192" required placeholder="粘贴包含图片链接的题干、选项或答案"></textarea>
+            <div class="image-actions">
+              <span id="image-count" class="form-hint" aria-hidden="true">0 / 8192</span>
+              <button id="image-submit" class="button button-primary">识别图片链接 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            </div>
+          </form>
+          <section id="image-output" class="image-output" aria-labelledby="image-title" tabindex="-1">
+            <div class="panel-header">
+              <h2 id="image-title">识别结果</h2>
+            </div>
+            <div class="image-result">
+              <div id="image-empty" class="image-empty" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 16 5-5 4 4 3-3 6 6M3 5h18v14H3z"/><circle cx="16" cy="9" r="1"/></svg></div>
+              <p id="image-status" class="status" role="status">提交题目后，这里会显示提取出的图片链接。</p>
+              <ol id="image-urls" hidden></ol>
+              <details id="image-details" hidden>
+                <summary>查看原文切分</summary>
+                <pre id="image-parts"></pre>
+              </details>
+            </div>
+          </section>
+        </div>
+        <section class="fixture-panel" aria-labelledby="fixture-title">
+          <div class="panel-header">
+            <h2 id="fixture-title">测试集 <span id="fixture-count" class="model-count"></span></h2>
+          </div>
+          <p id="fixture-status" class="status" role="status">正在加载测试集…</p>
+          <div id="fixture-list" class="fixture-list"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,8 +1,29 @@
-# 题目图像链接识别
+# ZError Open
+
+打开 [ZError Open](https://open.zerrorai.com/)，查看模型配置、测试模型连接、验证题图识别算法，也可以浏览 Agent 的网站经验。
+
+## 贡献
+
+| 功能 | 在线测试 | 在 GitHub 编辑 |
+| --- | --- | --- |
+| 模型配置 | [模型配置](https://open.zerrorai.com/models) | [模型目录](https://github.com/Miaozeqiu/ZError-Open/edit/main/open-api/models.json) |
+| 题图识别 | [题图识别](https://open.zerrorai.com/question-images) | [识别算法](https://github.com/Miaozeqiu/ZError-Open/edit/main/src/algorithm.js) · [测试用例](https://github.com/Miaozeqiu/ZError-Open/edit/main/test/fixtures.json) |
+
+登录 GitHub 后可以在网页编辑。按 GitHub 提示在自己的分支或 Fork 中提交，然后创建 Pull Request。请在 PR 说明要修复的场景和验证结果。模型目录仅包含公开的模型和供应商信息，API Key 请只填在连接测试表单内。
+
+在线站点展示已发布的版本。要预览自己的改动，可以用 Node.js 18 或以上启动本地页面，无需安装依赖。
+
+```sh
+node open-api/server.js
+```
+
+访问 [本地预览](http://127.0.0.1:3015/)。提交前运行 `npm test`。模型图标、接口和部署说明见 [Open 服务文档](open-api/README.md)。
+
+## 题目图像链接识别
 
 从题干、选项和答案里提取图片链接候选，并保留链接前后的文字。源自 ZError 管理后台的题目图像算法，支持超星 LaTeX 公式地址和图片 URL 后粘连的变量、单位或标点。
 
-## 使用
+### 使用
 
 在 Node.js 中调用 `splitQuestionImageParts` 获取按原文顺序排列的文本和图片候选。
 

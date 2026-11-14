@@ -1,0 +1,17 @@
+[Unit]
+Description=ZError public API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/zerror-open-api
+ExecStart=/opt/zerror-open-api/runtime/bin/node /opt/zerror-open-api/open-api/server.js
+Restart=on-failure
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

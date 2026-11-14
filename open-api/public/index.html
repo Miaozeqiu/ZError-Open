@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>模型配置 · ZError Open</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workbench.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="ZError Open 首页">
+        <span class="brand-icon" aria-hidden="true">Z</span>
+        <span>ZError <strong>Open</strong></span>
+      </a>
+      <nav class="site-nav" aria-label="页面导航">
+        <a href="/models" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/></svg><span>模型配置</span></a>
+        <a href="/question-images"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 16 5-5 4 4 3-3 6 6M3 5h18v14H3z"/><circle cx="16" cy="9" r="1"/></svg><span>题图识别</span></a>
+        <a href="/website-experience"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg><span>网站经验</span></a>
+      </nav>
+    </aside>
+    <main class="workspace">
+      <div class="workspace-inner">
+        <header class="page-header">
+          <h1>模型配置</h1>
+          <div class="page-actions">
+            <a class="button button-secondary source-link" href="/v1/config/models" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H7a2 2 0 0 0-2 2v3l-2 3 2 3v3a2 2 0 0 0 2 2h2m6-16h2a2 2 0 0 1 2 2v3l2 3-2 3v3a2 2 0 0 1-2 2h-2"/></svg><span>模型目录 JSON</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+            <a class="button button-secondary source-link" href="https://github.com/Miaozeqiu/ZError-Open/edit/main/open-api/models.json" target="_blank" rel="noopener">
+              <span>编辑模型配置</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>
+            </a>
+          </div>
+        </header>
+        <div class="model-workspace">
+          <section class="catalog-panel" aria-label="模型目录">
+            <div class="provider-section">
+              <h2 id="provider-label">供应商</h2>
+              <div id="platforms" class="provider-list" role="group" aria-labelledby="provider-label"></div>
+            </div>
+            <div class="catalog-heading">
+              <h2 id="models-label">可用模型 <span id="model-count" class="model-count"></span></h2>
+              <a class="details-jump" href="#model-details" hidden>查看配置 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+            </div>
+            <p id="catalog-status" class="status" role="status">正在加载模型目录…</p>
+            <div id="models" class="model-list" role="group" aria-labelledby="models-label"></div>
+          </section>
+          <section id="model-details" class="detail-panel" aria-label="接口配置" tabindex="-1" hidden>
+            <div class="model-summary">
+              <span id="model-icon" class="catalog-icon" aria-hidden="true"></span>
+              <div>
+                <h2 id="selected-model"></h2>
+                <div class="provider-caption">
+                  <span id="provider-icon" class="catalog-icon" aria-hidden="true"></span>
+                  <span id="selected-provider"></span>
+                </div>
+              </div>
+            </div>
+            <dl class="model-fields">
+              <div><dt>模型 ID</dt><dd><code id="model-id"></code><button class="copy-button" type="button" data-copy="model-id" aria-label="复制模型 ID" title="复制模型 ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3m-4 0h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/></svg></button></dd></div>
+              <div><dt>接口地址</dt><dd><code id="base-url"></code><button class="copy-button" type="button" data-copy="base-url" aria-label="复制接口地址" title="复制接口地址"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3m-4 0h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/></svg></button></dd></div>
+              <div><dt>接口协议</dt><dd><code id="protocol"></code></dd></div>
+              <div><dt>视觉能力</dt><dd id="vision"></dd></div>
+            </dl>
+            <form id="model-form" class="test-form" autocomplete="off">
+              <h3>测试连接</h3>
+              <label for="key">API Key</label>
+              <input id="key" type="password" required autocomplete="off" spellcheck="false" placeholder="输入所选供应商的 API Key">
+              <p class="form-hint">Key 经 ZError 转发给所选供应商，仅用于本次测试。</p>
+              <button id="model-submit" class="button button-primary" disabled>开始测试 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+              <p class="status" id="model-status" role="status"></p>
+            </form>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
