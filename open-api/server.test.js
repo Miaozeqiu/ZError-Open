@@ -156,7 +156,9 @@ test('official experience serves one complete revision and rejects altered files
   corrupt = false;
   const base = await startServer();
   const catalog = await (await fetch(base)).json();
-  assert.ok(catalog.sites.some(site => site.host === 'zhihuishu.com'));
+  assert.deepEqual(catalog.sites.map(site => site.host), ['chaoxing.com']);
+  const page = await (await fetch(new URL('/website-experience', base))).text();
+  assert.deepEqual([...page.matchAll(/class="repository-host">([^<]+)/g)].map(match => match[1]), ['chaoxing.com']);
   const [firstSnapshot, secondSnapshot] = await Promise.all([fetch(base + '/chaoxing.com'), fetch(base + '/chaoxing.com')]);
   assert.equal(firstSnapshot.status, 200);
   const snapshot = await firstSnapshot.json();
@@ -166,6 +168,8 @@ test('official experience serves one complete revision and rejects altered files
   assert.equal((await fetch(base + '/chaoxing.com', { headers: { 'If-None-Match': etag } })).status, 304);
   const unchanged = await fetch(base + '/chaoxing.com?revision=' + revision);
   assert.deepEqual(await unchanged.json(), { revision, unchanged: true });
-  assert.equal((await fetch(base + '/example.com')).status, 404);
+  for (const host of ['example.com', 'zhihuishu.com', 'zjooc.cn']) {
+    assert.equal((await fetch(base + '/' + host)).status, 404);
+  }
   assert.equal(commitRequests, 2);
 });
