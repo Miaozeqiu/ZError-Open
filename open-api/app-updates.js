@@ -1,5 +1,7 @@
 const releasePath = 'https://github.com/Miaozeqiu/ZError/releases/';
-const releaseApi = 'https://api.github.com/repos/Miaozeqiu/ZError/releases/latest';
+const releasesApi = 'https://api.github.com/repos/Miaozeqiu/ZError/releases';
+const releaseApi = releasesApi + '/latest';
+const releaseHeaders = { Accept: 'application/vnd.github+json', 'User-Agent': 'ZError-Open' };
 const archPattern = /(?:^|[-_.])(x86_64|amd64|x64|aarch64|arm64|i686|x86|armv7|universal)(?=[-_.]|$)/;
 const architectures = { amd64: 'x86_64', x64: 'x86_64', arm64: 'aarch64', x86: 'i686' };
 const cacheDuration = 5 * 60_000;
@@ -70,7 +72,7 @@ async function fetchReleasePage(request, signal) {
 }
 
 async function fetchReleaseMetadata(request, signal) {
-  const response = await request(releaseApi, { signal, redirect: 'error', headers: { Accept: 'application/vnd.github+json' } });
+  const response = await request(releaseApi, { signal, redirect: 'error', headers: releaseHeaders });
   if (response.status === 404) return null;
   if (response.status === 403 || response.status === 429) return fetchReleasePage(request, signal);
   if (!response.ok) throw new Error('GitHub release request failed');
@@ -129,14 +131,60 @@ async function fetchRelease(request) {
   };
 }
 
-function createAppUpdateFeed(request = fetch) {
+function publicInstaller(asset, tag) {
+  if (asset?.state && asset.state !== 'uploaded') return null;
+  const entry = releaseAsset(asset, tag);
+  if (!entry || !/^zerror(?:[_.-]|$)/i.test(entry.name)) return null;
+  const name = entry.name.toLowerCase();
+  const format = name.match(/\.(exe|msi|dmg|appimage|deb)$/)?.[1];
+  if (!format) return null;
+  const platform = format === 'exe' || format === 'msi' ? 'windows' : format === 'dmg' ? 'macos' : 'linux';
+  const token = name.match(archPattern)?.[1];
+  const legacyWindows = /^zerror_setup_\d+\.\d+\.\d+\.exe$/.test(name);
+  const arch = architectures[token] || token || (legacyWindows ? 'x86_64' : '');
+  return arch && (arch !== 'universal' || platform === 'macos') ? { ...entry, platform, arch, format } : null;
+}
+
+function publicRelease(release) {
+  const tag = release?.tag_name;
+  if (release?.draft || release?.prerelease || typeof tag !== 'string' || !stableTag.test(tag)) return null;
+  const version = tag.replace(/^v/, '');
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  return {
+    tag,
+    version,
+    name: typeof release.name === 'string' && release.name.trim() ? release.name.slice(0, 160) : 'ZError v' + version,
+    releaseDate: Number.isFinite(Date.parse(release.published_at)) ? release.published_at : null,
+    releaseUrl: releasePath + 'tag/' + encodeURIComponent(tag),
+    notes: typeof release.body === 'string' ? release.body.slice(0, 20_000) : '',
+    installers: assets.map(asset => publicInstaller(asset, tag)).filter(Boolean),
+  };
+}
+
+async function fetchReleaseList(request) {
+  const signal = AbortSignal.timeout(8000);
+  const response = await request(releasesApi + '?per_page=50', { signal, redirect: 'error', headers: releaseHeaders });
+  if (response.status === 403 || response.status === 429) {
+    const release = publicRelease(await fetchReleasePage(request, signal));
+    return { releases: release ? [release] : [], partial: true };
+  }
+  if (!response.ok) throw new Error('GitHub release list request failed');
+  const data = await response.json();
+  if (!Array.isArray(data)) throw new Error('Invalid GitHub release list');
+  return {
+    releases: data.map(publicRelease).filter(Boolean),
+    partial: /rel="next"/.test(response.headers.get('link') || ''),
+  };
+}
+
+function createCachedFeed(load) {
   let current;
   let expiresAt = 0;
   let pending;
   let failure;
   return function getRelease() {
     if (Date.now() < expiresAt) return failure ? Promise.reject(failure) : Promise.resolve(current);
-    pending ||= fetchRelease(request).then(release => {
+    pending ||= load().then(release => {
       current = release;
       failure = undefined;
       expiresAt = Date.now() + cacheDuration;
@@ -153,4 +201,7 @@ function createAppUpdateFeed(request = fetch) {
   };
 }
 
-module.exports = { createAppUpdateFeed };
+const createAppUpdateFeed = (request = fetch) => createCachedFeed(() => fetchRelease(request));
+const createReleaseListFeed = (request = fetch) => createCachedFeed(() => fetchReleaseList(request));
+
+module.exports = { createAppUpdateFeed, createReleaseListFeed };

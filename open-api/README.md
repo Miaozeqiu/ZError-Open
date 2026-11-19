@@ -12,6 +12,7 @@
 | GET | `/v1/website-experience/<host>/script-manifest.json` | 网站脚本清单及 SHA-256 |
 | GET | `/v1/website-experience/<host>/scripts/<name>.<sha256>.js` | 与站点提交对应的隔离脚本 |
 | GET | `/health` | 健康检查 |
+| GET | `/v1/app-updates/releases` | 公开正式发布列表及 Windows、macOS、Linux 安装包 |
 | GET | `/v1/app-updates/latest` | 主仓库最新正式版本及各架构的安装包 |
 | GET | `/v1/app-updates/native/<target>/<arch>` | 该架构的签名更新清单，无签名包时返回 204 |
 | GET | `/v1/config/models` | 公开模型和平台目录 |
@@ -35,3 +36,5 @@
 软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。安装包的下载地址指向同一 Release。应用内更新需要同名的 `.sig` 文件。
 
 官方网站仓库可在 `site-tools/tools.json` 声明工具，并在同目录发布 JS 适配器。Open 从同一 Git 提交校验并发布文档、工具和脚本。经验响应的 `tools` 为工具定义，`scriptManifest` 指向 Open 同源的清单。
+
+官网在浏览器中读取发布列表。Open 每五分钟按请求刷新缓存，GitHub 限流时暂时返回最新正式版，并用 `partial` 标记结果。安装包地址来自 GitHub 正式发布。

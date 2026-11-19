@@ -82,6 +82,56 @@ test('app updates cover signed packages and installer-only releases by target', 
   assert.equal(releaseRequests, 1);
 });
 
+test('public releases exclude drafts and previews and expose official installers for each platform', async t => {
+  const tag = 'v2.2.5';
+  const url = name => 'https://github.com/Miaozeqiu/ZError/releases/download/' + tag + '/' + name;
+  const installers = [
+    { name: 'ZError_Setup_2.2.5.exe', platform: 'windows', arch: 'x86_64', format: 'exe' },
+    { name: 'ZError_2.2.5_aarch64.dmg', platform: 'macos', arch: 'aarch64', format: 'dmg' },
+    { name: 'ZError_2.2.5_amd64.AppImage', platform: 'linux', arch: 'x86_64', format: 'appimage' },
+    { name: 'ZError_2.2.5_amd64.deb', platform: 'linux', arch: 'x86_64', format: 'deb' },
+  ].map(asset => ({ ...asset, url: url(asset.name) }));
+  let requests = 0;
+  const fetchReleaseSource = async source => {
+    assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases?per_page=50');
+    requests++;
+    return Response.json([
+      { tag_name: 'v2.2.9', draft: true },
+      { tag_name: 'v2.2.8', prerelease: true },
+      { tag_name: 'v2.3.0-beta.1' },
+      {
+        tag_name: tag, name: 'ZError', body: 'Fixes', published_at: '2026-05-17T15:32:32Z',
+        assets: [
+          ...installers.map(({ name, url }) => ({ name, browser_download_url: url, state: 'uploaded' })),
+          { name: 'ZError_Setup_2.2.5.exe.sig', browser_download_url: url('ZError_Setup_2.2.5.exe.sig') },
+          { name: 'ZError_2.2.5_x64.msi', browser_download_url: 'https://example.org/install.msi' },
+          { name: 'ZError_2.2.5_arm64.dmg', browser_download_url: url('ZError_2.2.5_arm64.dmg'), state: 'new' },
+        ],
+      },
+    ]);
+  };
+  const server = makeServer({ fetchReleaseSource }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => {
+    server.close();
+    server.closeAllConnections();
+  });
+  const endpoint = 'http://127.0.0.1:' + server.address().port + '/v1/app-updates/releases';
+  const responses = await Promise.all([fetch(endpoint), fetch(endpoint)]);
+  for (const response of responses) {
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    assert.deepEqual(await response.json(), {
+      releases: [{
+        tag, version: '2.2.5', name: 'ZError', releaseDate: '2026-05-17T15:32:32Z',
+        releaseUrl: 'https://github.com/Miaozeqiu/ZError/releases/tag/' + tag, notes: 'Fixes', installers,
+      }],
+      partial: false,
+    });
+  }
+  assert.equal(requests, 1);
+});
+
 test('public image algorithm API', async t => {
   const server = makeServer().listen(0, '127.0.0.1');
   await once(server, 'listening');

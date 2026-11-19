@@ -2,7 +2,7 @@ const { readFileSync } = require('node:fs');
 const { createServer } = require('node:http');
 const { join } = require('node:path');
 const catalog = require('./models.json');
-const { createAppUpdateFeed } = require('./app-updates');
+const { createAppUpdateFeed, createReleaseListFeed } = require('./app-updates');
 const { testModel } = require('./model-test');
 const { sites, createWebsiteExperience } = require('./website-experience');
 const fixtures = require('../test/fixtures.json');
@@ -110,6 +110,7 @@ function servePublic(path, response) {
 
 function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch, fetchReleaseSource = fetch } = {}) {
   const getAppRelease = createAppUpdateFeed(fetchReleaseSource);
+  const getReleaseList = createReleaseListFeed(fetchReleaseSource);
   const getExperience = createWebsiteExperience(fetchWebsiteSource);
   return createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
@@ -163,6 +164,14 @@ function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch, fetchRe
       } catch {
         response.setHeader('Retry-After', '60');
         return sendJson(response, 503, { error: 'experience_unavailable' });
+      }
+    }
+    if (method === 'GET' && path === '/v1/app-updates/releases') {
+      try {
+        return sendJson(response, 200, await getReleaseList());
+      } catch {
+        response.setHeader('Retry-After', '60');
+        return sendJson(response, 503, { error: 'release_list_unavailable' });
       }
     }
     const nativeUpdate = /^\/v1\/app-updates\/native\/(darwin|windows|linux)\/(aarch64|x86_64|i686|armv7)$/.exec(path);
