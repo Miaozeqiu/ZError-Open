@@ -93,13 +93,9 @@ test('public releases exclude drafts and previews and expose official installers
   ].map(asset => ({ ...asset, url: url(asset.name) }));
   let requests = 0;
   const fetchReleaseSource = async source => {
-    assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases?per_page=50');
     requests++;
-    return Response.json([
-      { tag_name: 'v2.2.9', draft: true },
-      { tag_name: 'v2.2.8', prerelease: true },
-      { tag_name: 'v2.3.0-beta.1' },
-      {
+    if (source === 'https://api.github.com/repos/Miaozeqiu/ZError/releases/latest') {
+      return Response.json({
         tag_name: tag, name: 'ZError', body: 'Fixes', published_at: '2026-05-17T15:32:32Z',
         assets: [
           ...installers.map(({ name, url }) => ({ name, browser_download_url: url, state: 'uploaded' })),
@@ -107,7 +103,14 @@ test('public releases exclude drafts and previews and expose official installers
           { name: 'ZError_2.2.5_x64.msi', browser_download_url: 'https://example.org/install.msi' },
           { name: 'ZError_2.2.5_arm64.dmg', browser_download_url: url('ZError_2.2.5_arm64.dmg'), state: 'new' },
         ],
-      },
+      });
+    }
+    assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases?per_page=50');
+    return Response.json([
+      { tag_name: 'v2.2.9', draft: true },
+      { tag_name: 'v2.2.8', prerelease: true },
+      { tag_name: 'v2.3.0-beta.1' },
+      { tag_name: 'v2.2.4', name: 'Earlier release' },
     ]);
   };
   const server = makeServer({ fetchReleaseSource }).listen(0, '127.0.0.1');
@@ -125,11 +128,14 @@ test('public releases exclude drafts and previews and expose official installers
       releases: [{
         tag, version: '2.2.5', name: 'ZError', releaseDate: '2026-05-17T15:32:32Z',
         releaseUrl: 'https://github.com/Miaozeqiu/ZError/releases/tag/' + tag, notes: 'Fixes', installers,
+      }, {
+        tag: 'v2.2.4', version: '2.2.4', name: 'Earlier release', releaseDate: null,
+        releaseUrl: 'https://github.com/Miaozeqiu/ZError/releases/tag/v2.2.4', notes: '', installers: [],
       }],
       partial: false,
     });
   }
-  assert.equal(requests, 1);
+  assert.equal(requests, 2);
 });
 
 test('public image algorithm API', async t => {

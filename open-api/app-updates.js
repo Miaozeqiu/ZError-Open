@@ -163,17 +163,23 @@ function publicRelease(release) {
 
 async function fetchReleaseList(request) {
   const signal = AbortSignal.timeout(8000);
-  const response = await request(releasesApi + '?per_page=50', { signal, redirect: 'error', headers: releaseHeaders });
-  if (response.status === 403 || response.status === 429) {
-    const release = publicRelease(await fetchReleasePage(request, signal));
-    return { releases: release ? [release] : [], partial: true };
+  const [history, latest] = await Promise.allSettled([
+    request(releasesApi + '?per_page=50', { signal, redirect: 'error', headers: releaseHeaders }),
+    fetchReleaseMetadata(request, signal).then(publicRelease),
+  ]);
+  const newest = latest.status === 'fulfilled' ? latest.value : null;
+  if (history.status === 'rejected' || !history.value.ok) {
+    if (latest.status === 'fulfilled') return { releases: newest ? [newest] : [], partial: true };
+    throw new Error('GitHub release list request failed');
   }
-  if (!response.ok) throw new Error('GitHub release list request failed');
-  const data = await response.json();
+  const data = await history.value.json();
   if (!Array.isArray(data)) throw new Error('Invalid GitHub release list');
+  const releases = data.map(publicRelease).filter(Boolean);
+  // GitHub's public history can temporarily omit a republished draft even
+  // when the canonical latest endpoint already serves the new release.
   return {
-    releases: data.map(publicRelease).filter(Boolean),
-    partial: /rel="next"/.test(response.headers.get('link') || ''),
+    releases: newest ? [newest, ...releases.filter(release => release.tag !== newest.tag)] : releases,
+    partial: /rel="next"/.test(history.value.headers.get('link') || ''),
   };
 }
 
