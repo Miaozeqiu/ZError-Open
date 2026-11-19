@@ -2,10 +2,15 @@ const { createHash } = require('node:crypto');
 
 const sites = Object.freeze([
   { id: 'chaoxing', name: '学习通', host: 'chaoxing.com', repository: 'Miaozeqiu/ZError-chaoxing' },
+  { id: 'zjooc', name: '在浙学', host: 'zjooc.cn', repository: 'Miaozeqiu/ZError-zjooc' },
+  { id: 'zhihuishu', name: '智慧树', host: 'zhihuishu.com', repository: 'Miaozeqiu/ZError-zhihuishu' },
 ].map(site => ({ ...site, branch: 'main', root: 'skills/' + site.id, url: 'https://github.com/' + site.repository })));
 
 const shaPattern = /^[a-f0-9]{40}$/;
 const documentPath = /^(?:SKILL\.md|site-graph\.json|references\/[a-z0-9][a-z0-9-]*\.md)$/;
+const siteScriptPath = /^site-tools\/([a-z][a-z0-9-]{0,40})\.js$/;
+const toolLimit = 32 * 1024;
+const scriptLimit = 256 * 1024;
 const iconPath = /^assets\/[a-zA-Z0-9_-]+\.(png|ico|jpe?g|webp|gif)$/;
 const mime = { png: 'image/png', ico: 'image/x-icon', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 const maxDocument = 512 * 1024;
@@ -53,8 +58,9 @@ async function refreshSite(site, previous, fetchSource) {
   if (tree.truncated || !Array.isArray(tree.tree)) throw new Error('Incomplete experience tree');
   const prefix = site.root + '/';
   const entries = new Map(tree.tree
-    .filter(entry => typeof entry.path === 'string' && entry.path.startsWith(prefix) && entry.type !== 'tree')
-    .map(entry => [entry.path.slice(prefix.length), entry]));
+    .filter(entry => typeof entry.path === 'string' && entry.type !== 'tree'
+      && (entry.path.startsWith(prefix) || (site.id !== 'zhihuishu' && (entry.path === 'site-tools/tools.json' || siteScriptPath.test(entry.path)))))
+    .map(entry => [entry.path.startsWith(prefix) ? entry.path.slice(prefix.length) : entry.path, entry]));
 
   async function download(path, limit) {
     const entry = entries.get(path);
@@ -77,16 +83,24 @@ async function refreshSite(site, previous, fetchSource) {
     || typeof website.name !== 'string' || !website.name.trim() || website.name.length > 80 || !iconMatch) {
     throw new Error('Invalid experience manifest');
   }
-  const paths = [...entries.keys()].filter(path => path !== 'website.json' && path !== website.icon);
+  const paths = [...entries.keys()].filter(path => path !== 'website.json' && path !== website.icon && !path.startsWith('site-tools/'));
   if (!paths.includes('SKILL.md') || !paths.includes('site-graph.json') || paths.length > 32
     || paths.some(path => !documentPath.test(path))
     || paths.reduce((total, path) => total + entries.get(path).size, 0) > maxPackage) {
     throw new Error('Invalid experience package');
   }
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  const [iconBytes, documents] = await Promise.all([
+  const toolsFile = 'site-tools/tools.json';
+  const scriptPaths = [...entries.keys()].filter(path => siteScriptPath.test(path));
+  if (scriptPaths.length > 12 || (scriptPaths.length && !entries.has(toolsFile))) throw new Error('Invalid website scripts');
+  const [iconBytes, documents, toolBytes, scripts] = await Promise.all([
     download(website.icon, 256 * 1024),
     Promise.all(paths.map(async path => [path, decoder.decode(await download(path, maxDocument))])),
+    entries.has(toolsFile) ? download(toolsFile, toolLimit) : undefined,
+    Promise.all(scriptPaths.map(async path => {
+      const code = await download(path, scriptLimit);
+      return { name: siteScriptPath.exec(path)[1], code, sha256: createHash('sha256').update(code).digest('hex') };
+    })),
   ]);
   const files = Object.fromEntries(documents);
   const graph = JSON.parse(files['site-graph.json']);
@@ -94,7 +108,19 @@ async function refreshSite(site, previous, fetchSource) {
     throw new Error('Invalid experience graph');
   }
   const icon = { path: website.icon, dataUrl: 'data:' + mime[iconMatch[1]] + ';base64,' + iconBytes.toString('base64') };
-  return { upstreamEtag, snapshot: { revision, files, website, icon } };
+  const tools = toolBytes ? parseJson(toolBytes) : [];
+  if (!Array.isArray(tools) || tools.length > 32 || tools.some(row => row?.type !== 'function'
+    || !/^browser_[a-z][a-z0-9_]{0,58}$/.test(row.function?.name ?? '')
+    || typeof row.function?.description !== 'string' || row.function?.parameters?.type !== 'object')
+    || new Set(tools.map(row => row.function.name)).size !== tools.length) throw new Error('Invalid website tools');
+  const artifacts = new Map(scripts.map(({ name, code, sha256 }) => [name + '.' + sha256 + '.js', code]));
+  const hasScripts = scripts.length > 0;
+  const manifest = hasScripts ? {
+    apiVersion: 1, siteId: site.id, revision,
+    bundles: Object.fromEntries(scripts.map(({ name, sha256 }) => [name, { url: './scripts/' + name + '.' + sha256 + '.js', sha256 }])),
+  } : undefined;
+  return { upstreamEtag, snapshot: { revision, files, website, icon, tools,
+    ...(hasScripts ? { scriptManifest: '/v1/website-experience/' + site.host + '/script-manifest.json' } : {}) }, manifest, artifacts };
 }
 
 function createWebsiteExperience(fetchSource = fetch) {
@@ -104,17 +130,21 @@ function createWebsiteExperience(fetchSource = fetch) {
     if (!cache.has(site.id)) cache.set(site.id, {});
     const state = cache.get(site.id);
     const now = Date.now();
-    if (state.value && now < state.freshUntil) return state.value.snapshot;
-    if (now < state.retryAt) throw new Error('Experience source temporarily unavailable');
+    if (state.value && now < state.freshUntil) return state.value;
+    if (now < state.retryAt) {
+      if (state.value) return state.value;
+      throw new Error('Experience source temporarily unavailable');
+    }
     state.pending ||= refreshSite(site, state.value, fetchSource)
       .then(value => {
         state.value = value;
         state.freshUntil = Date.now() + refreshInterval;
         state.retryAt = 0;
-        return value.snapshot;
+        return value;
       })
       .catch(error => {
         state.retryAt = Date.now() + 60_000;
+        if (state.value) return state.value;
         throw error;
       })
       .finally(() => { state.pending = undefined; });

@@ -2,6 +2,7 @@ const { readFileSync } = require('node:fs');
 const { createServer } = require('node:http');
 const { join } = require('node:path');
 const catalog = require('./models.json');
+const { createAppUpdateFeed } = require('./app-updates');
 const { testModel } = require('./model-test');
 const { sites, createWebsiteExperience } = require('./website-experience');
 const fixtures = require('../test/fixtures.json');
@@ -107,7 +108,8 @@ function servePublic(path, response) {
   }
 }
 
-function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch } = {}) {
+function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch, fetchReleaseSource = fetch } = {}) {
+  const getAppRelease = createAppUpdateFeed(fetchReleaseSource);
   const getExperience = createWebsiteExperience(fetchWebsiteSource);
   return createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
@@ -126,23 +128,33 @@ function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch } = {}) 
       return sendJson(response, 200, { sites });
     }
     if ((method === 'GET' || method === 'OPTIONS') && path.startsWith('/v1/website-experience/')) {
-      const site = sites.find(item => path === '/v1/website-experience/' + item.host);
+      const route = /^\/v1\/website-experience\/([^/]+)(?:\/(script-manifest\.json|scripts\/[a-z][a-z0-9-]{0,40}\.[a-f0-9]{64}\.js))?$/.exec(path);
+      const site = route && sites.find(item => item.host === route[1]);
       if (!site) return sendJson(response, 404, { error: 'unknown_website' });
       if (method === 'OPTIONS') {
         response.writeHead(204, {
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'If-None-Match',
+          'Access-Control-Allow-Headers': 'If-None-Match, Cache-Control',
         });
         return response.end();
       }
       try {
-        const snapshot = await getExperience(site);
+        const { snapshot, manifest, artifacts } = await getExperience(site);
+        const asset = route[2];
+        if (asset?.startsWith('scripts/')) {
+          const code = artifacts.get(asset.slice('scripts/'.length));
+          if (!code) return sendJson(response, 404, { error: 'unknown_website_script' });
+          response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' });
+          return response.end(code);
+        }
+        if (asset && !manifest) return sendJson(response, 404, { error: 'no_script_manifest' });
         const etag = '"' + snapshot.revision + '"';
         response.setHeader('ETag', etag);
         if (request.headers['if-none-match'] === etag) {
           response.writeHead(304);
           return response.end();
         }
+        if (asset) return sendJson(response, 200, manifest);
         const query = new URLSearchParams(request.url.split('?')[1]);
         if (query.get('revision') === snapshot.revision) {
           return sendJson(response, 200, { revision: snapshot.revision, unchanged: true });
@@ -151,6 +163,25 @@ function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch } = {}) 
       } catch {
         response.setHeader('Retry-After', '60');
         return sendJson(response, 503, { error: 'experience_unavailable' });
+      }
+    }
+    const nativeUpdate = /^\/v1\/app-updates\/native\/(darwin|windows|linux)\/(aarch64|x86_64|i686|armv7)$/.exec(path);
+    if (method === 'GET' && (path === '/v1/app-updates/latest' || nativeUpdate)) {
+      try {
+        const release = await getAppRelease();
+        const platform = nativeUpdate && release?.platforms[nativeUpdate[1] + '-' + nativeUpdate[2]];
+        if (!release || (nativeUpdate && !platform)) {
+          response.writeHead(204);
+          return response.end();
+        }
+        if (platform) {
+          const { version, notes, pub_date } = release;
+          return sendJson(response, 200, { version, notes, pub_date, ...platform });
+        }
+        return sendJson(response, 200, release);
+      } catch {
+        response.setHeader('Retry-After', '60');
+        return sendJson(response, 503, { error: 'release_unavailable' });
       }
     }
     if (path === '/v1/config/models' && method === 'GET') {

@@ -9,7 +9,11 @@
 | GET | `/website-experience` | 浏览 ZError Agent 的网站操作经验和导航图谱来源 |
 | GET | `/v1/website-experience` | 官方网站经验目录及 GitHub 来源 |
 | GET | `/v1/website-experience/<host>` | 读取指定网站的官方经验快照，支持通过 `revision` 查询增量 |
+| GET | `/v1/website-experience/<host>/script-manifest.json` | 网站脚本清单及 SHA-256 |
+| GET | `/v1/website-experience/<host>/scripts/<name>.<sha256>.js` | 与站点提交对应的隔离脚本 |
 | GET | `/health` | 健康检查 |
+| GET | `/v1/app-updates/latest` | 主仓库最新正式版本及各架构的安装包 |
+| GET | `/v1/app-updates/native/<target>/<arch>` | 该架构的签名更新清单，无签名包时返回 204 |
 | GET | `/v1/config/models` | 公开模型和平台目录 |
 | POST | `/v1/config/models/test` | 使用所选平台、模型及用户本次填写的 API Key 发起测试 |
 | GET | `/v1/question-images/algorithm` | 返回本仓库 `src/algorithm.js` 的源码，供桌面端加载 |
@@ -27,3 +31,7 @@
 现有源站使用 systemd 和 Nginx。在已部署的机器上升级时，运行 `bash open-api/deploy.sh user@host`。该脚本使用现有的 Node 运行环境，保留旧域名入口，升级失败时恢复原有服务文件和配置。
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
+
+软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。安装包的下载地址指向同一 Release。应用内更新需要同名的 `.sig` 文件。
+
+官方网站仓库可在 `site-tools/tools.json` 声明工具，并在同目录发布 JS 适配器。Open 从同一 Git 提交校验并发布文档、工具和脚本。经验响应的 `tools` 为工具定义，`scriptManifest` 指向 Open 同源的清单。

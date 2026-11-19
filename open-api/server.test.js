@@ -4,6 +4,83 @@ const { readdirSync } = require('node:fs');
 const { join } = require('node:path');
 const test = require('node:test');
 const { makeServer } = require('./server');
+const { createAppUpdateFeed } = require('./app-updates');
+
+test('app updates still read the official GitHub release when its API is rate limited', async () => {
+  const origin = 'https://github.com';
+  const path = '/Miaozeqiu/ZError/releases/';
+  const tag = 'v2.2.5';
+  const releaseUrl = origin + path + 'tag/' + tag;
+  const installer = path + 'download/' + tag + '/ZError_Setup_2.2.5.exe';
+  const request = async (url, { redirect }) => {
+    if (url.startsWith('https://api.github.com/')) return new Response(null, { status: 403 });
+    if (url === origin + path + 'latest') {
+      assert.equal(redirect, 'manual');
+      return Response.redirect(releaseUrl);
+    }
+    if (url === releaseUrl) {
+      return new Response('<meta property="og:description" content="Fix &amp; improve"><relative-time datetime="2026-05-17T15:32:32Z">');
+    }
+    assert.equal(url, origin + path + 'expanded_assets/' + tag);
+    return new Response(`<a href="${installer}">Installer</a><a href="/other/repo/releases/download/${tag}/ZError_Setup_2.2.5.exe">Other</a>`);
+  };
+  const release = await createAppUpdateFeed(request)();
+  assert.equal(release.version, '2.2.5');
+  assert.equal(release.releaseUrl, releaseUrl);
+  assert.equal(release.changelog, 'Fix & improve');
+  assert.deepEqual(release.installers, { 'windows-x86_64': origin + installer });
+});
+
+test('app updates cover signed packages and installer-only releases by target', async t => {
+  const tag = 'v2.2.9';
+  const url = name => `https://github.com/Miaozeqiu/ZError/releases/download/${tag}/${name}`;
+  const exe = 'ZError_2.2.9_x64-setup.exe';
+  const dmg = 'ZError_2.2.9_aarch64.dmg';
+  const tar = 'ZError_2.2.9_aarch64.app.tar.gz';
+  const signature = Buffer.from('untrusted comment: signature\nRWQ=\ntrusted comment: timestamp\nRWQ=\n').toString('base64');
+  let releaseRequests = 0;
+  const fetchReleaseSource = async source => {
+    if (source === url(exe + '.sig')) return new Response(signature + '\n');
+    if (source === url(tar + '.sig')) return new Response('invalid signature');
+    assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases/latest');
+    releaseRequests++;
+    return Response.json({
+      tag_name: tag,
+      published_at: '2026-11-14T00:00:00Z',
+      body: 'Update notes',
+      assets: [
+        ...[exe, exe + '.sig', dmg, tar, tar + '.sig'].map(name => ({ name, browser_download_url: url(name) })),
+        { name: 'ZError_2.2.9_x86_64.dmg', browser_download_url: 'https://example.org/other-release.dmg' },
+      ],
+    });
+  };
+  const server = makeServer({ fetchReleaseSource }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => {
+    server.close();
+    server.closeAllConnections();
+  });
+  const base = `http://127.0.0.1:${server.address().port}/v1/app-updates`;
+  const [latest, native, unsigned, absent] = await Promise.all([
+    fetch(base + '/latest'),
+    fetch(base + '/native/windows/x86_64'),
+    fetch(base + '/native/darwin/aarch64'),
+    fetch(base + '/native/windows/aarch64'),
+  ]);
+  assert.equal(latest.status, 200);
+  const { version, releaseUrl, installers, platforms } = await latest.json();
+  assert.equal(version, '2.2.9');
+  assert.equal(releaseUrl, 'https://github.com/Miaozeqiu/ZError/releases/tag/v2.2.9');
+  assert.deepEqual(installers, { 'windows-x86_64': url(exe), 'darwin-aarch64': url(dmg) });
+  assert.deepEqual(platforms, { 'windows-x86_64': { url: url(exe), signature } });
+  assert.equal(native.status, 200);
+  assert.deepEqual(await native.json(), {
+    version, notes: 'Update notes', pub_date: '2026-11-14T00:00:00Z', url: url(exe), signature,
+  });
+  assert.equal(unsigned.status, 204);
+  assert.equal(absent.status, 204);
+  assert.equal(releaseRequests, 1);
+});
 
 test('public image algorithm API', async t => {
   const server = makeServer().listen(0, '127.0.0.1');
@@ -124,8 +201,13 @@ test('official experience serves one complete revision and rejects altered files
     'site-graph.json': JSON.stringify({ id: website.id, host: website.host, nodes: [], edges: [] }),
     [website.icon]: 'image',
   };
-  const tree = Object.entries(files).map(([path, value]) => ({
-    path: root + path, type: 'blob', mode: '100644', size: Buffer.byteLength(value),
+  const tool = { type: 'function', function: { name: 'browser_login_chaoxing', description: 'Login', parameters: { type: 'object' } } };
+  const adapter = 'const ZErrorSiteScript = { run: () => \"wait\" };';
+  const source = Object.fromEntries(Object.entries(files).map(([path, value]) => [root + path, value]));
+  source['site-tools/tools.json'] = JSON.stringify([tool]);
+  source['site-tools/login.js'] = adapter;
+  const tree = Object.entries(source).map(([path, value]) => ({
+    path, type: 'blob', mode: '100644', size: Buffer.byteLength(value),
     sha: createHash('sha1').update('blob ' + Buffer.byteLength(value) + '\0').update(value).digest('hex'),
   }));
   let corrupt = true;
@@ -137,8 +219,8 @@ test('official experience serves one complete revision and rejects altered files
     }
     if (input.includes('/git/trees/')) return Response.json({ tree });
     const entry = tree.find(item => input.endsWith('/git/blobs/' + item.sha));
-    const path = entry.path.slice(root.length);
-    const content = corrupt && path === 'SKILL.md' ? files[path].replace('Course', 'course') : files[path];
+    const path = entry.path;
+    const content = corrupt && path === root + 'SKILL.md' ? source[path].replace('Course', 'course') : source[path];
     return Response.json({ encoding: 'base64', sha: entry.sha, size: entry.size, content: Buffer.from(content).toString('base64') });
   };
   const startServer = async () => {
@@ -156,20 +238,26 @@ test('official experience serves one complete revision and rejects altered files
   corrupt = false;
   const base = await startServer();
   const catalog = await (await fetch(base)).json();
-  assert.deepEqual(catalog.sites.map(site => site.host), ['chaoxing.com']);
-  const page = await (await fetch(new URL('/website-experience', base))).text();
-  assert.deepEqual([...page.matchAll(/class="repository-host">([^<]+)/g)].map(match => match[1]), ['chaoxing.com']);
+  assert.ok(catalog.sites.some(site => site.host === 'zhihuishu.com'));
   const [firstSnapshot, secondSnapshot] = await Promise.all([fetch(base + '/chaoxing.com'), fetch(base + '/chaoxing.com')]);
   assert.equal(firstSnapshot.status, 200);
   const snapshot = await firstSnapshot.json();
   assert.deepEqual(await secondSnapshot.json(), snapshot);
   assert.equal(snapshot.files['SKILL.md'], files['SKILL.md']);
+  assert.deepEqual(snapshot.tools, [tool]);
+  const manifest = await fetch(base + '/chaoxing.com/script-manifest.json');
+  assert.equal(manifest.status, 200);
+  const { bundles, siteId } = await manifest.json();
+  assert.equal(siteId, 'chaoxing');
+  const bytes = await fetch(new URL(bundles.login.url, manifest.url));
+  assert.equal(bytes.status, 200);
+  assert.equal(await bytes.text(), adapter);
+  assert.equal(bundles.login.sha256, createHash('sha256').update(adapter).digest('hex'));
+  assert.equal((await fetch(base + '/chaoxing.com/scripts/login.' + '0'.repeat(64) + '.js')).status, 404);
   const etag = firstSnapshot.headers.get('etag');
   assert.equal((await fetch(base + '/chaoxing.com', { headers: { 'If-None-Match': etag } })).status, 304);
   const unchanged = await fetch(base + '/chaoxing.com?revision=' + revision);
   assert.deepEqual(await unchanged.json(), { revision, unchanged: true });
-  for (const host of ['example.com', 'zhihuishu.com', 'zjooc.cn']) {
-    assert.equal((await fetch(base + '/' + host)).status, 404);
-  }
+  assert.equal((await fetch(base + '/example.com')).status, 404);
   assert.equal(commitRequests, 2);
 });
