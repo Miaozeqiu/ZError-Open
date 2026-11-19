@@ -40,7 +40,7 @@ async function fetchAsset(assetId, options, fetchSource, redirectsByAsset) {
   throw new Error('Unexpected release asset redirect');
 }
 
-async function streamInstaller(request, response, installer, fetchSource, redirectsByAsset) {
+async function streamInstaller(request, response, installer, readAsset) {
   if (response.destroyed) return;
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -52,9 +52,9 @@ async function streamInstaller(request, response, installer, fetchSource, redire
       headers.Range = request.headers.range;
       if (request.headers['if-range']) headers['If-Range'] = request.headers['if-range'];
     }
-    const upstream = await fetchAsset(installer.assetId, {
+    const upstream = await readAsset(installer.assetId, {
       method: request.method, headers, signal: controller.signal,
-    }, fetchSource, redirectsByAsset);
+    });
     clearTimeout(headerTimeout);
 
     if (upstream.status === 404 || upstream.status === 416) {
@@ -67,7 +67,6 @@ async function streamInstaller(request, response, installer, fetchSource, redire
 
     const encoding = upstream.headers.get('Content-Encoding');
     const type = upstream.headers.get('Content-Type');
-    if (upstream.status === 401 || upstream.status === 403) redirectsByAsset.delete(installer.assetId);
     if (![200, 206].includes(upstream.status) || (encoding && encoding !== 'identity')
       || /^(?:text\/html|application\/(?:json|[^;]+\+json))/i.test(type || '')
       || (upstream.status === 206 && !upstream.headers.has('Content-Range'))
@@ -84,6 +83,7 @@ async function streamInstaller(request, response, installer, fetchSource, redire
       'Content-Type': 'application/octet-stream',
       'Content-Disposition': 'attachment; filename="' + installer.name + '"',
       'X-Accel-Buffering': 'no',
+      'X-Open-Installer-Cache': 'MISS',
     });
     if (request.method === 'HEAD') return response.end();
     await pipeline(Readable.fromWeb(upstream.body), response, { signal: controller.signal });
@@ -94,11 +94,15 @@ async function streamInstaller(request, response, installer, fetchSource, redire
   }
 }
 
-function createInstallerDownload(fetchSource) {
+function createReleaseAssetSource(fetchSource) {
   // The GitHub REST API rate-limits anonymous requests. Reuse its signed CDN
   // URLs by asset ID until shortly before they expire.
   const redirectsByAsset = new Map();
-  return (request, response, installer) => streamInstaller(request, response, installer, fetchSource, redirectsByAsset);
+  return async (assetId, options) => {
+    const result = await fetchAsset(assetId, options, fetchSource, redirectsByAsset);
+    if (result.status === 401 || result.status === 403) redirectsByAsset.delete(assetId);
+    return result;
+  };
 }
 
-module.exports = { createInstallerDownload, validRange };
+module.exports = { createReleaseAssetSource, streamInstaller, validRange };

@@ -28,13 +28,15 @@
 
 解析接口接受 UTF-8 JSON，文本上限为 8,192 个 JavaScript 字符串单元，请求体上限为 32 KiB。图片识别提取链接候选，不下载图片。
 
-需要 Node.js 18 或以上。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/server.test.js` 验证服务。
+需要 Node.js 18.17 或以上。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/server.test.js` 验证服务。
 
 现有源站使用 systemd 和 Nginx。在已部署的机器上升级时，运行 `bash open-api/deploy.sh user@host`。该脚本使用现有的 Node 运行环境，保留旧域名入口，升级失败时恢复原有服务文件和配置。
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
 
-软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 流式转发 GitHub 附件。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
+软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 每五分钟读取发布列表并预取最近两个正式版本的安装包。systemd 提供持久缓存目录，预取可续传，文件通过 GitHub 公布的大小和 SHA-256 校验后才启用本地缓存。冷缓存期间使用实时转发。
+
+本地缓存就绪后，下载地址会指向包含 GitHub 附件 ID 的 CDN 路径。源站对已缓存的完整和范围响应设置 s-maxage=86400，同版本替换附件会使用新路径。需要立即下架已经进入 CDN 缓存的文件时，在 EdgeOne 刷新该附件的完整路径。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
 
 官方网站仓库可在 `site-tools/tools.json` 声明工具，并在同目录发布 JS 适配器。Open 从同一 Git 提交校验并发布文档、工具和脚本。经验响应的 `tools` 为工具定义，`scriptManifest` 指向 Open 同源的清单。
 

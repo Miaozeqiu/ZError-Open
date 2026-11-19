@@ -3,7 +3,8 @@ const { createServer } = require('node:http');
 const { join } = require('node:path');
 const catalog = require('./models.json');
 const { createAppUpdateFeed, createReleaseListFeed } = require('./app-updates');
-const { createInstallerDownload, validRange } = require('./release-downloads');
+const { createReleaseAssetSource, streamInstaller, validRange } = require('./release-downloads');
+const { createInstallerCache, serveCachedInstaller } = require('./installer-cache');
 const { testModel } = require('./model-test');
 const { sites, createWebsiteExperience } = require('./website-experience');
 const fixtures = require('../test/fixtures.json');
@@ -114,12 +115,14 @@ function makeServer({
   fetchWebsiteSource = fetch,
   fetchReleaseSource = fetch,
   fetchDownloadSource = fetch,
+  installerCacheDirectory,
 } = {}) {
   const getAppRelease = createAppUpdateFeed(fetchReleaseSource);
   const getReleaseList = createReleaseListFeed(fetchReleaseSource);
-  const downloadInstaller = createInstallerDownload(fetchDownloadSource);
+  const readAsset = createReleaseAssetSource(fetchDownloadSource);
+  const installerCache = installerCacheDirectory && createInstallerCache(installerCacheDirectory, readAsset);
   const getExperience = createWebsiteExperience(fetchWebsiteSource);
-  return createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
+  const server = createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cache-Control', 'no-store');
@@ -181,17 +184,28 @@ function makeServer({
         return sendJson(response, 503, { error: 'release_list_unavailable' });
       }
     }
-    const download = /^\/v1\/app-updates\/download\/(v?[0-9]+\.[0-9]+\.[0-9]+)\/([a-zA-Z0-9_.-]+)$/.exec(path);
+    const download = /^\/v1\/app-updates\/download\/(v?[0-9]+\.[0-9]+\.[0-9]+)\/(?:(\d+)\/)?([a-zA-Z0-9_.-]+)$/.exec(path);
     if (download && (method === 'GET' || method === 'HEAD')) {
       if (request.headers.range !== undefined && !validRange(request.headers.range)) {
         return sendJson(response, 400, { error: 'invalid_range' });
       }
       try {
         const { releases } = await getReleaseList();
-        const release = releases.find(item => item.tag === download[1]);
-        const installer = release?.installers.find(item => item.name === download[2]);
-        if (!installer) return sendJson(response, 404, { error: 'unknown_installer' });
-        return await downloadInstaller(request, response, installer);
+        const [, tag, revision, name] = download;
+        const release = releases.find(item => item.tag === tag);
+        const installer = release?.installers.find(item => item.name === name);
+        if (!installer || (revision && revision !== String(installer.assetId))) {
+          return sendJson(response, 404, { error: 'unknown_installer' });
+        }
+        const cached = await installerCache?.find(installer);
+        if (cached && revision && await serveCachedInstaller(request, response, cached, installer)) return;
+        if (cached && !revision) {
+          // Keep the website URL stable while giving every immutable GitHub
+          // attachment its own CDN cache key.
+          response.writeHead(302, { Location: '/v1/app-updates/download/' + tag + '/' + installer.assetId + '/' + name });
+          return response.end();
+        }
+        return await streamInstaller(request, response, installer, readAsset);
       } catch {
         if (response.destroyed) return;
         if (response.headersSent) return response.destroy();
@@ -271,10 +285,24 @@ function makeServer({
     }
     return sendJson(response, 404, { error: 'not_found' });
   });
+  if (installerCache) {
+    const prefetch = () => getReleaseList().then(installerCache.warm).catch(error => {
+      console.warn('Installer cache refresh: ' + error.message);
+    });
+    server.once('listening', () => {
+      prefetch();
+      const polling = setInterval(prefetch, 5 * 60_000);
+      server.once('close', () => {
+        clearInterval(polling);
+        installerCache.close();
+      });
+    });
+  }
+  return server;
 }
 
 function start() {
-  makeServer().listen(Number(process.env.PORT || 3015), process.env.HOST || '127.0.0.1');
+  makeServer({ installerCacheDirectory: process.env.CACHE_DIRECTORY }).listen(Number(process.env.PORT || 3015), process.env.HOST || '127.0.0.1');
 }
 
 if (require.main === module) start();

@@ -1,6 +1,10 @@
+const { createHash } = require('node:crypto');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { readdirSync } = require('node:fs');
+const { mkdtemp, readFile, rm, writeFile } = require('node:fs/promises');
+const { tmpdir } = require('node:os');
+const { setTimeout: delay } = require('node:timers/promises');
 const { join } = require('node:path');
 const test = require('node:test');
 const { makeServer } = require('./server');
@@ -97,6 +101,8 @@ test('public releases exclude drafts and previews and expose official installers
   ].map((asset, index) => ({
     ...asset,
     assetId: index + 1,
+    size: null,
+    digest: null,
     url: url(asset.name),
     downloadUrl: 'https://open.zerrorai.com/v1/app-updates/download/' + tag + '/' + asset.name,
   }));
@@ -221,6 +227,79 @@ test('installer downloads stream allowed release assets and preserve range respo
   redirect = 'https://example.org/untrusted';
   assert.equal((await fetch(endpoint)).status, 502);
   assert.deepEqual(calls.slice(5), [cdn, assetApi]);
+});
+
+test('startup prefetch resumes an installer and subsequent downloads are served from disk', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'zerror-installer-test-'));
+  const tag = 'v2.2.9';
+  const name = 'ZError_2.2.9_x64-setup.exe';
+  const bytes = Buffer.from([0x4d, 0x5a, 0x90, 0x00]);
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const installer = {
+    id: 10, name, size: bytes.length, digest: 'sha256:' + sha,
+    browser_download_url: 'https://github.com/Miaozeqiu/ZError/releases/download/' + tag + '/' + name,
+  };
+  const release = { tag_name: tag, assets: [installer] };
+  const cacheFile = join(directory, '10-' + sha + '.installer');
+  await writeFile(cacheFile + '.part', bytes.subarray(0, 1));
+  let downloads = 0;
+  const server = makeServer({
+    installerCacheDirectory: directory,
+    fetchReleaseSource: async source => Response.json(source.endsWith('/latest') ? release : [release]),
+    fetchDownloadSource: async (source, options) => {
+      downloads++;
+      assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases/assets/10');
+      assert.equal(options.headers.Range, 'bytes=1-');
+      return new Response(bytes.subarray(1), {
+        status: 206, headers: { 'Content-Length': '3', 'Content-Range': 'bytes 1-3/4' },
+      });
+    },
+  }).listen(0, '127.0.0.1');
+  t.after(async () => {
+    const closed = once(server, 'close');
+    server.close();
+    server.closeAllConnections();
+    await closed;
+    await rm(directory, { recursive: true, force: true });
+  });
+  await once(server, 'listening');
+  let prefetched;
+  for (let retry = 0; retry < 100 && !prefetched; retry++) {
+    prefetched = await readFile(cacheFile).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (!prefetched) await delay(10);
+  }
+  assert.deepEqual(prefetched, bytes);
+  assert.equal(downloads, 1);
+
+  const root = 'http://127.0.0.1:' + server.address().port + '/v1/app-updates/download/' + tag;
+  const stable = await fetch(root + '/' + name, { redirect: 'manual' });
+  assert.equal(stable.status, 302);
+  assert.equal(stable.headers.get('cache-control'), 'no-store');
+  const url = new URL(stable.headers.get('location'), root);
+  assert.equal(url.pathname, '/v1/app-updates/download/' + tag + '/10/' + name);
+
+  const full = await fetch(url);
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get('x-open-installer-cache'), 'HIT');
+  assert.match(full.headers.get('cache-control'), /s-maxage=86400/);
+  assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes);
+  const etag = full.headers.get('etag');
+
+  const resume = await fetch(url, { headers: { Range: 'bytes=-2', 'If-Range': etag } });
+  assert.equal(resume.status, 206);
+  assert.equal(resume.headers.get('content-range'), 'bytes 2-3/4');
+  assert.deepEqual(Buffer.from(await resume.arrayBuffer()), bytes.subarray(2));
+  const changed = await fetch(url, { headers: { Range: 'bytes=1-', 'If-Range': '"previous"' } });
+  assert.equal(changed.status, 200);
+  assert.deepEqual(Buffer.from(await changed.arrayBuffer()), bytes);
+  assert.equal((await fetch(url, { headers: { 'If-None-Match': etag } })).status, 304);
+  const invalid = await fetch(url, { headers: { Range: 'bytes=4-' } });
+  assert.equal(invalid.status, 416);
+  assert.equal(invalid.headers.get('content-range'), 'bytes */4');
+  assert.equal((await fetch(root + '/9/' + name)).status, 404);
+  assert.equal(downloads, 1);
 });
 
 test('public image algorithm API', async t => {

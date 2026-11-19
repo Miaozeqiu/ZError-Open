@@ -147,7 +147,9 @@ function publicInstaller(asset, tag) {
   const arch = architectures[token] || token || (legacyWindows ? 'x86_64' : '');
   if (!arch || (arch === 'universal' && platform !== 'macos')) return null;
   const downloadUrl = 'https://open.zerrorai.com/v1/app-updates/download/' + tag + '/' + entry.name;
-  return { ...entry, assetId: asset.id, downloadUrl, platform, arch, format };
+  const size = Number.isSafeInteger(asset.size) && asset.size > 0 ? asset.size : null;
+  const digest = typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/.test(asset.digest) ? asset.digest : null;
+  return { ...entry, assetId: asset.id, size, digest, downloadUrl, platform, arch, format };
 }
 
 function publicRelease(release) {
