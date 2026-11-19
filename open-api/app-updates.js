@@ -80,8 +80,7 @@ async function fetchReleaseMetadata(request, signal) {
 }
 
 async function fetchRelease(request) {
-  const signal = AbortSignal.timeout(8000);
-  const release = await fetchReleaseMetadata(request, signal);
+  const release = await fetchReleaseMetadata(request, AbortSignal.timeout(8000));
   if (!release) return null;
   const tag = release.tag_name;
   if (release.draft || release.prerelease || typeof tag !== 'string' || !stableTag.test(tag)) {
@@ -113,21 +112,25 @@ async function fetchRelease(request) {
     }
   }
   const signatures = new Map();
+  const signatureSignal = AbortSignal.timeout(8000);
   await Promise.all([...packages].map(async ([target, { asset, signatureAsset }]) => {
-    if (!signatures.has(signatureAsset.url)) signatures.set(signatureAsset.url, readSignature(signatureAsset, request, signal));
+    if (!signatures.has(signatureAsset.url)) signatures.set(signatureAsset.url, readSignature(signatureAsset, request, signatureSignal));
     const signature = await signatures.get(signatureAsset.url);
     if (signature) platforms[target] = { url: asset.url, signature };
   }));
   const notes = typeof release.body === 'string' ? release.body : '';
   const { published_at: published } = release;
   return {
-    version: tag.replace(/^v/, ''),
-    notes,
-    changelog: notes,
-    ...(Number.isFinite(Date.parse(published)) ? { pub_date: published, releaseDate: published } : {}),
-    releaseUrl: releasePath + 'tag/' + encodeURIComponent(tag),
-    installers,
-    platforms,
+    missingSignatures: Object.keys(platforms).length < packages.size,
+    release: {
+      version: tag.replace(/^v/, ''),
+      notes,
+      changelog: notes,
+      ...(Number.isFinite(Date.parse(published)) ? { pub_date: published, releaseDate: published } : {}),
+      releaseUrl: releasePath + 'tag/' + encodeURIComponent(tag),
+      installers,
+      platforms,
+    },
   };
 }
 
@@ -183,7 +186,7 @@ async function fetchReleaseList(request) {
   };
 }
 
-function createCachedFeed(load) {
+function createCachedFeed(load, cacheFor = () => cacheDuration) {
   let current;
   let expiresAt = 0;
   let pending;
@@ -193,7 +196,7 @@ function createCachedFeed(load) {
     pending ||= load().then(release => {
       current = release;
       failure = undefined;
-      expiresAt = Date.now() + cacheDuration;
+      expiresAt = Date.now() + cacheFor(release);
       return release;
     }).catch(error => {
       expiresAt = Date.now() + 60_000;
@@ -207,7 +210,10 @@ function createCachedFeed(load) {
   };
 }
 
-const createAppUpdateFeed = (request = fetch) => createCachedFeed(() => fetchRelease(request));
+function createAppUpdateFeed(request = fetch) {
+  const getFeed = createCachedFeed(() => fetchRelease(request), result => result?.missingSignatures ? 30_000 : cacheDuration);
+  return async () => (await getFeed())?.release ?? null;
+}
 const createReleaseListFeed = (request = fetch) => createCachedFeed(() => fetchReleaseList(request));
 
 module.exports = { createAppUpdateFeed, createReleaseListFeed };

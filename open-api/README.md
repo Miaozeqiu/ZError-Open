@@ -33,7 +33,7 @@
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
 
-软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。安装包的下载地址指向同一 Release。应用内更新需要同名的 `.sig` 文件。
+软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。安装包的下载地址指向同一 Release。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
 
 官方网站仓库可在 `site-tools/tools.json` 声明工具，并在同目录发布 JS 适配器。Open 从同一 Git 提交校验并发布文档、工具和脚本。经验响应的 `tools` 为工具定义，`scriptManifest` 指向 Open 同源的清单。
 

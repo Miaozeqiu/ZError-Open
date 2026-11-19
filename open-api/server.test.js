@@ -39,10 +39,14 @@ test('app updates cover signed packages and installer-only releases by target', 
   const tar = 'ZError_2.2.9_aarch64.app.tar.gz';
   const signature = Buffer.from('untrusted comment: signature\nRWQ=\ntrusted comment: timestamp\nRWQ=\n').toString('base64');
   let releaseRequests = 0;
-  const fetchReleaseSource = async source => {
-    if (source === url(exe + '.sig')) return new Response(signature + '\n');
-    if (source === url(tar + '.sig')) return new Response('invalid signature');
+  let metadataSignal;
+  const fetchReleaseSource = async (source, { signal }) => {
+    if (source === url(exe + '.sig') || source === url(tar + '.sig')) {
+      assert.notEqual(signal, metadataSignal);
+      return new Response(source === url(exe + '.sig') ? signature + '\n' : 'invalid signature');
+    }
     assert.equal(source, 'https://api.github.com/repos/Miaozeqiu/ZError/releases/latest');
+    metadataSignal = signal;
     releaseRequests++;
     return Response.json({
       tag_name: tag,
