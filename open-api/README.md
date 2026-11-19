@@ -13,6 +13,7 @@
 | GET | `/v1/website-experience/<host>/scripts/<name>.<sha256>.js` | 与站点提交对应的隔离脚本 |
 | GET | `/health` | 健康检查 |
 | GET | `/v1/app-updates/releases` | 公开正式发布列表及 Windows、macOS、Linux 安装包 |
+| GET、HEAD | `/v1/app-updates/download/:tag/:filename` | 转发正式发布安装包，支持单段字节范围下载 |
 | GET | `/v1/app-updates/latest` | 主仓库最新正式版本及各架构的安装包 |
 | GET | `/v1/app-updates/native/<target>/<arch>` | 该架构的签名更新清单，无签名包时返回 204 |
 | GET | `/v1/config/models` | 公开模型和平台目录 |
@@ -33,7 +34,7 @@
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
 
-软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。安装包的下载地址指向同一 Release。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
+软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 流式转发 GitHub 附件。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
 
 官方网站仓库可在 `site-tools/tools.json` 声明工具，并在同目录发布 JS 适配器。Open 从同一 Git 提交校验并发布文档、工具和脚本。经验响应的 `tools` 为工具定义，`scriptManifest` 指向 Open 同源的清单。
 

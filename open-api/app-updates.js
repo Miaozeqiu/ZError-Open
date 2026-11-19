@@ -135,7 +135,7 @@ async function fetchRelease(request) {
 }
 
 function publicInstaller(asset, tag) {
-  if (asset?.state && asset.state !== 'uploaded') return null;
+  if (!Number.isSafeInteger(asset?.id) || asset.id <= 0 || (asset.state && asset.state !== 'uploaded')) return null;
   const entry = releaseAsset(asset, tag);
   if (!entry || !/^zerror(?:[_.-]|$)/i.test(entry.name)) return null;
   const name = entry.name.toLowerCase();
@@ -145,7 +145,9 @@ function publicInstaller(asset, tag) {
   const token = name.match(archPattern)?.[1];
   const legacyWindows = /^zerror_setup_\d+\.\d+\.\d+\.exe$/.test(name);
   const arch = architectures[token] || token || (legacyWindows ? 'x86_64' : '');
-  return arch && (arch !== 'universal' || platform === 'macos') ? { ...entry, platform, arch, format } : null;
+  if (!arch || (arch === 'universal' && platform !== 'macos')) return null;
+  const downloadUrl = 'https://open.zerrorai.com/v1/app-updates/download/' + tag + '/' + entry.name;
+  return { ...entry, assetId: asset.id, downloadUrl, platform, arch, format };
 }
 
 function publicRelease(release) {

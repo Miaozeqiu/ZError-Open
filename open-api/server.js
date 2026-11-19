@@ -3,6 +3,7 @@ const { createServer } = require('node:http');
 const { join } = require('node:path');
 const catalog = require('./models.json');
 const { createAppUpdateFeed, createReleaseListFeed } = require('./app-updates');
+const { createInstallerDownload, validRange } = require('./release-downloads');
 const { testModel } = require('./model-test');
 const { sites, createWebsiteExperience } = require('./website-experience');
 const fixtures = require('../test/fixtures.json');
@@ -108,9 +109,15 @@ function servePublic(path, response) {
   }
 }
 
-function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch, fetchReleaseSource = fetch } = {}) {
+function makeServer({
+  fetchUpstream = fetch,
+  fetchWebsiteSource = fetch,
+  fetchReleaseSource = fetch,
+  fetchDownloadSource = fetch,
+} = {}) {
   const getAppRelease = createAppUpdateFeed(fetchReleaseSource);
   const getReleaseList = createReleaseListFeed(fetchReleaseSource);
+  const downloadInstaller = createInstallerDownload(fetchDownloadSource);
   const getExperience = createWebsiteExperience(fetchWebsiteSource);
   return createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
@@ -172,6 +179,23 @@ function makeServer({ fetchUpstream = fetch, fetchWebsiteSource = fetch, fetchRe
       } catch {
         response.setHeader('Retry-After', '60');
         return sendJson(response, 503, { error: 'release_list_unavailable' });
+      }
+    }
+    const download = /^\/v1\/app-updates\/download\/(v?[0-9]+\.[0-9]+\.[0-9]+)\/([a-zA-Z0-9_.-]+)$/.exec(path);
+    if (download && (method === 'GET' || method === 'HEAD')) {
+      if (request.headers.range !== undefined && !validRange(request.headers.range)) {
+        return sendJson(response, 400, { error: 'invalid_range' });
+      }
+      try {
+        const { releases } = await getReleaseList();
+        const release = releases.find(item => item.tag === download[1]);
+        const installer = release?.installers.find(item => item.name === download[2]);
+        if (!installer) return sendJson(response, 404, { error: 'unknown_installer' });
+        return await downloadInstaller(request, response, installer);
+      } catch {
+        if (response.destroyed) return;
+        if (response.headersSent) return response.destroy();
+        return sendJson(response, 502, { error: 'download_unavailable' });
       }
     }
     const nativeUpdate = /^\/v1\/app-updates\/native\/(darwin|windows|linux)\/(aarch64|x86_64|i686|armv7)$/.exec(path);

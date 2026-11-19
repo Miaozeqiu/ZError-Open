@@ -94,7 +94,12 @@ test('public releases exclude drafts and previews and expose official installers
     { name: 'ZError_2.2.5_aarch64.dmg', platform: 'macos', arch: 'aarch64', format: 'dmg' },
     { name: 'ZError_2.2.5_amd64.AppImage', platform: 'linux', arch: 'x86_64', format: 'appimage' },
     { name: 'ZError_2.2.5_amd64.deb', platform: 'linux', arch: 'x86_64', format: 'deb' },
-  ].map(asset => ({ ...asset, url: url(asset.name) }));
+  ].map((asset, index) => ({
+    ...asset,
+    assetId: index + 1,
+    url: url(asset.name),
+    downloadUrl: 'https://open.zerrorai.com/v1/app-updates/download/' + tag + '/' + asset.name,
+  }));
   let requests = 0;
   const fetchReleaseSource = async source => {
     requests++;
@@ -102,10 +107,10 @@ test('public releases exclude drafts and previews and expose official installers
       return Response.json({
         tag_name: tag, name: 'ZError', body: 'Fixes', published_at: '2026-05-17T15:32:32Z',
         assets: [
-          ...installers.map(({ name, url }) => ({ name, browser_download_url: url, state: 'uploaded' })),
-          { name: 'ZError_Setup_2.2.5.exe.sig', browser_download_url: url('ZError_Setup_2.2.5.exe.sig') },
-          { name: 'ZError_2.2.5_x64.msi', browser_download_url: 'https://example.org/install.msi' },
-          { name: 'ZError_2.2.5_arm64.dmg', browser_download_url: url('ZError_2.2.5_arm64.dmg'), state: 'new' },
+          ...installers.map(({ name, url, assetId }) => ({ id: assetId, name, browser_download_url: url, state: 'uploaded' })),
+          { id: 5, name: 'ZError_Setup_2.2.5.exe.sig', browser_download_url: url('ZError_Setup_2.2.5.exe.sig') },
+          { id: 6, name: 'ZError_2.2.5_x64.msi', browser_download_url: 'https://example.org/install.msi' },
+          { id: 7, name: 'ZError_2.2.5_arm64.dmg', browser_download_url: url('ZError_2.2.5_arm64.dmg'), state: 'new' },
         ],
       });
     }
@@ -140,6 +145,82 @@ test('public releases exclude drafts and previews and expose official installers
     });
   }
   assert.equal(requests, 2);
+});
+
+test('installer downloads stream allowed release assets and preserve range responses', async t => {
+  const tag = 'v2.2.9';
+  const name = 'ZError_2.2.9_x64-setup.exe';
+  const url = 'https://github.com/Miaozeqiu/ZError/releases/download/' + tag + '/' + name;
+  const assetApi = 'https://api.github.com/repos/Miaozeqiu/ZError/releases/assets/10';
+  const expires = encodeURIComponent(new Date(Date.now() + 3_600_000).toISOString());
+  const cdn = 'https://release-assets.githubusercontent.com/file?signature=mock&se=' + expires;
+  const bytes = Buffer.from([0x4d, 0x5a, 0x90, 0x00]);
+  const release = { tag_name: tag, assets: [{ id: 10, name, browser_download_url: url }] };
+  const fetchReleaseSource = async source => Response.json(source.endsWith('/latest') ? release : [release]);
+  const calls = [];
+  let redirect = cdn;
+  const fetchDownloadSource = async (source, options) => {
+    calls.push(source);
+    assert.equal(options.redirect, 'manual');
+    assert.equal(options.headers['Accept-Encoding'], 'identity');
+    assert.equal(options.headers.Accept, 'application/octet-stream');
+    assert.equal(options.headers.Cookie, undefined);
+    assert.equal(options.headers.Authorization, undefined);
+    if (source === assetApi) return new Response(null, { status: 302, headers: { Location: redirect } });
+    assert.equal(source, cdn);
+    if (options.headers.Range === 'bytes=1-') return new Response(null, { status: 403 });
+    const headers = { 'Accept-Ranges': 'bytes', ETag: '"mock"' };
+    if (options.headers.Range === 'bytes=10-') {
+      return new Response('outside the file', { status: 416, headers: { 'Content-Range': 'bytes */4' } });
+    }
+    if (options.headers.Range === 'bytes=0-1') {
+      assert.equal(options.headers['If-Range'], '"mock"');
+      return new Response(bytes.subarray(0, 2), {
+        status: 206, headers: { ...headers, 'Content-Range': 'bytes 0-1/4', 'Content-Length': '2' },
+      });
+    }
+    return new Response(options.method === 'HEAD' ? null : bytes, {
+      headers: { ...headers, 'Content-Length': '4' },
+    });
+  };
+  const server = makeServer({ fetchReleaseSource, fetchDownloadSource }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => {
+    server.close();
+    server.closeAllConnections();
+  });
+  const endpoint = 'http://127.0.0.1:' + server.address().port + '/v1/app-updates/download/' + tag + '/' + name;
+
+  const full = await fetch(endpoint, { redirect: 'manual' });
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get('location'), null);
+  assert.equal(full.headers.get('content-disposition'), 'attachment; filename="' + name + '"');
+  assert.deepEqual(Buffer.from(await full.arrayBuffer()), bytes);
+
+  const head = await fetch(endpoint, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('content-length'), '4');
+
+  const part = await fetch(endpoint, {
+    headers: { Range: 'bytes=0-1', 'If-Range': '"mock"', Cookie: 'private', Authorization: 'private' },
+  });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 0-1/4');
+  assert.equal(part.headers.get('accept-ranges'), 'bytes');
+  assert.equal(part.headers.get('etag'), '"mock"');
+  assert.deepEqual(Buffer.from(await part.arrayBuffer()), bytes.subarray(0, 2));
+
+  const outside = await fetch(endpoint, { headers: { Range: 'bytes=10-' } });
+  assert.equal(outside.status, 416);
+  assert.equal(outside.headers.get('content-range'), 'bytes */4');
+  assert.equal((await fetch(endpoint, { headers: { Range: 'bytes=0-1,2-3' } })).status, 400);
+  assert.equal((await fetch(endpoint + '.sig')).status, 404);
+  assert.deepEqual(calls, [assetApi, cdn, cdn, cdn, cdn]);
+
+  assert.equal((await fetch(endpoint, { headers: { Range: 'bytes=1-' } })).status, 502);
+  redirect = 'https://example.org/untrusted';
+  assert.equal((await fetch(endpoint)).status, 502);
+  assert.deepEqual(calls.slice(5), [cdn, assetApi]);
 });
 
 test('public image algorithm API', async t => {
