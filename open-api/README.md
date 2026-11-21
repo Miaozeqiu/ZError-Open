@@ -34,6 +34,8 @@
 
 GitHub REST API 返回配额耗尽或限流时，Open 使用公开 Git 通道浅克隆固定官方仓库，从同一提交的 Git 对象读取文件，仍执行相同的文档、编译产物和资源校验。此路径不使用凭据、不检出工作目录，也不执行仓库脚本。临时仓库在结束后删除；传输限时 20 秒、仓库包限制 64 MiB、结果读取有大小上限。普通上游错误或校验失败不会绕过检查切换来源。
 
+源站 DNS 解析出的 GitHub 节点不可达时，可在仅供源站使用的 `/etc/zerror-open-api-network.env` 配置 `ZERROR_GITHUB_GIT_ADDRESS=<可达的 GitHub 官方 IPv4>`，并通过 systemd `EnvironmentFile` 加载。部署检查读取同一配置。该项只调整 Git 通道连接地址，仓库域名和 TLS 证书校验不变；应用代码不内置固定节点地址。
+
 软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 每五分钟读取发布列表并预取最近两个正式版本的安装包。systemd 提供持久缓存目录，预取可续传，文件通过 GitHub 公布的大小和 SHA-256 校验后才启用本地缓存。冷缓存期间使用实时转发。
 
 GitHub 发布元数据也保存在 systemd 缓存目录，避免服务重启期间 GitHub 限流导致安装包列表丢失。只有两个固定公开发布接口会使用此缓存，不存储认证头；网络故障、限流或服务器错误时复用最后有效数据，明确的 404 会清除对应缓存。

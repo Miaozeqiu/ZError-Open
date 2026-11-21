@@ -4,13 +4,18 @@ const { spawn } = require('node:child_process');
 const { mkdtemp, readdir, stat, rm } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
+const { isIP } = require('node:net');
 
 function runGit(args, { signal, limit = 3 * 1024 * 1024, packDirectory } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error('GitHub Git transport timed out'));
+    const address = process.env.ZERROR_GITHUB_GIT_ADDRESS;
+    if (address && isIP(address) !== 4) return reject(new Error('Invalid GitHub transport address'));
+    // Optional source-host network setting. HTTPS still verifies github.com.
+    const resolution = address ? ['-c', 'http.curloptResolve=github.com:443:' + address] : [];
     const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'credential.helper=',
-      '-c', 'init.templateDir=', '-c', 'http.version=HTTP/1.1', '-c', 'http.followRedirects=false', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never',
-      '-c', 'http.lowSpeedLimit=1024', '-c', 'http.lowSpeedTime=5', ...args], {
+      '-c', 'init.templateDir=', '-c', 'http.version=HTTP/1.1', '-c', 'http.followRedirects=false',
+      '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never', ...resolution, ...args], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_COUNT: '0',

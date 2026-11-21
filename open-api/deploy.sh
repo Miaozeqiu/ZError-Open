@@ -19,6 +19,9 @@ config=/etc/nginx/conf.d/zerror-open-api.conf
 unit=zerror-open-api.service
 unit_file=/etc/systemd/system/$unit
 backup="$stage/backup"
+if [ -r /etc/zerror-open-api-network.env ]; then
+    export ZERROR_GITHUB_GIT_ADDRESS="$(sed -n 's/^ZERROR_GITHUB_GIT_ADDRESS=//p' /etc/zerror-open-api-network.env)"
+fi
 mkdir "$backup"
 test -x "$app/runtime/bin/node"
 test -f "$unit_file"
