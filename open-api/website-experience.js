@@ -1,8 +1,9 @@
 const { createHash } = require('node:crypto');
 
 const sites = Object.freeze([
-  { id: 'zjooc', name: '在浙学', host: 'zjooc.cn', repository: 'Miaozeqiu/ZError-zjooc' },
   { id: 'chaoxing', name: '学习通', host: 'chaoxing.com', repository: 'Miaozeqiu/ZError-chaoxing' },
+  { id: 'zjooc', name: '在浙学', host: 'zjooc.cn', repository: 'Miaozeqiu/ZError-zjooc' },
+  { id: 'zhihuishu', name: '智慧树', host: 'zhihuishu.com', repository: 'Miaozeqiu/ZError-zhihuishu' },
 ].map(site => ({ ...site, branch: 'main', root: 'skills/' + site.id, url: 'https://github.com/' + site.repository })));
 
 const shaPattern = /^[a-f0-9]{40}$/;

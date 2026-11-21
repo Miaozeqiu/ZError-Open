@@ -8,8 +8,12 @@
 | GET | `/question-images` | 测试题图链接识别 |
 | GET | `/website-experience` | 浏览 ZError Agent 的网站操作经验和导航图谱来源 |
 | GET | `/v1/website-experience` | 官方网站经验目录及 GitHub 来源 |
-| GET | `/v1/website-experience/<host>` | 读取指定网站的官方经验快照，支持通过 `revision` 查询增量 |
+| GET | `/v1/website-experience/<host>` | 读取含编译工具包和资源的完整官方经验快照，支持通过 `revision` 查询增量 |
 | GET | `/health` | 健康检查 |
+| GET | `/v1/app-updates/releases` | 公开正式发布列表及 Windows、macOS、Linux 安装包 |
+| GET、HEAD | `/v1/app-updates/download/:tag/:filename` | 转发正式发布安装包，支持单段字节范围下载 |
+| GET | `/v1/app-updates/latest` | 主仓库最新正式版本及各架构的安装包 |
+| GET | `/v1/app-updates/native/<target>/<arch>` | 该架构的签名更新清单，无签名包时返回 204 |
 | GET | `/v1/config/models` | 公开模型和平台目录 |
 | POST | `/v1/config/models/test` | 使用所选平台、模型及用户本次填写的 API Key 发起测试 |
 | GET | `/v1/question-images/algorithm` | 返回本仓库 `src/algorithm.js` 的源码，供桌面端加载 |
@@ -22,8 +26,16 @@
 
 解析接口接受 UTF-8 JSON，文本上限为 8,192 个 JavaScript 字符串单元，请求体上限为 32 KiB。图片识别提取链接候选，不下载图片。
 
-需要 Node.js 18 或以上。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/server.test.js` 验证服务。
+需要 Node.js 18.17 或以上。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/server.test.js` 验证服务。
 
 现有源站使用 systemd 和 Nginx。在已部署的机器上升级时，运行 `bash open-api/deploy.sh user@host`。该脚本使用现有的 Node 运行环境，保留旧域名入口，升级失败时恢复原有服务文件和配置。
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
+
+软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 每五分钟读取发布列表并预取最近两个正式版本的安装包。systemd 提供持久缓存目录，预取可续传，文件通过 GitHub 公布的大小和 SHA-256 校验后才启用本地缓存。冷缓存期间使用实时转发。
+
+本地缓存就绪后，下载地址会指向包含 GitHub 附件 ID 的 CDN 路径。源站对已缓存的完整和范围响应设置 s-maxage=86400，同版本替换附件会使用新路径。需要立即下架已经进入 CDN 缓存的文件时，在 EdgeOne 刷新该附件的完整路径。应用内更新需要同名的 `.sig` 文件。发布包含签名附件但暂时读取失败时，Open 缓存 30 秒后重试。
+
+官方网站仓库在 `skills/<网站 id>/runtime.json` 发布编译工具包，包含 `apiVersion:2`、代码、SHA-256、工具定义及可选资源。Open 从同一 Git 提交读取文档、图谱、图标和运行包，校验 Git blob、执行代码与资源哈希后整体启用快照。运行包通过经验响应的 `runtime` 字段返回，不放进经验正文；接口继续使用现有路径，不新增版本路由或保留旧版脚本清单。执行代码最多 256 KiB、运行包文件最多 2 MiB，资源解码总量最多 1 MiB。客户端负责进一步校验命令和权限，并在隔离沙箱执行。
+
+官网在浏览器中读取发布列表。Open 每五分钟按请求刷新缓存，将 GitHub 标记的最新正式版放在列表首位。历史列表不可用时暂时返回最新正式版，并用 `partial` 标记结果。安装包地址来自 GitHub 正式发布。

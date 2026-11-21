@@ -57,7 +57,22 @@ finish() {
 }
 trap finish EXIT
 
-"$app/runtime/bin/node" --test "$stage/open-api/server.test.js"
+"$app/runtime/bin/node" --test "$stage/open-api/"*.test.js
+# Confirm official compiled packages are available before replacing the service.
+"$app/runtime/bin/node" - "$stage" <<'NODE'
+const assert = require('node:assert/strict');
+const { sites, createWebsiteExperience } = require(process.argv[2] + '/open-api/website-experience');
+(async () => {
+    const getExperience = createWebsiteExperience();
+    for (const host of ['chaoxing.com', 'zjooc.cn']) {
+        const snapshot = await getExperience(sites.find(site => site.host === host));
+        assert.equal(snapshot.runtime?.apiVersion, 2, host + ' has no compiled runtime');
+        assert.ok(snapshot.runtime.tools.length);
+        console.log(JSON.stringify({ host, revision: snapshot.revision, tools: snapshot.runtime.tools.length,
+            resources: snapshot.runtime.resources?.length || 0 }));
+    }
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
+NODE
 mutating=1
 for dir in src open-api; do
     if [ -e "$app/$dir" ]; then
@@ -81,6 +96,18 @@ for _ in $(seq 1 10); do
 done
 curl -fsS --max-time 3 http://127.0.0.1:3015/v1/config/models >/dev/null
 curl -fsS --max-time 3 http://127.0.0.1:3015/v1/question-images/algorithm >/dev/null
+"$app/runtime/bin/node" - <<'NODE'
+const assert = require('node:assert/strict');
+(async () => {
+    for (const host of ['chaoxing.com', 'zjooc.cn']) {
+        const response = await fetch('http://127.0.0.1:3015/v1/website-experience/' + host, { signal: AbortSignal.timeout(20000) });
+        assert.equal(response.status, 200, host + ' experience unavailable');
+        const snapshot = await response.json();
+        assert.equal(snapshot.runtime?.apiVersion, 2, host + ' compiled runtime missing');
+        assert.ok(snapshot.runtime.tools.length);
+    }
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
+NODE
 nginx -t
 systemctl reload nginx
 for path in / /models /question-images /website-experience /v1/website-experience /v1/config/models /v1/question-images/algorithm /v1/question-images/fixtures; do
