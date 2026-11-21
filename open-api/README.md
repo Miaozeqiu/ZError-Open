@@ -26,9 +26,9 @@
 
 解析接口接受 UTF-8 JSON，文本上限为 8,192 个 JavaScript 字符串单元，请求体上限为 32 KiB。图片识别提取链接候选，不下载图片。
 
-需要 Node.js 18.17 或以上及 Git。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/*.test.js` 验证服务。
+使用 Node.js 24 或以上及 Git，在仓库根目录运行 `npm start`，本地页面为 `http://127.0.0.1:3015`。运行 `npm test` 验证完整应用，包括接口、算法和部署事务。
 
-现有源站使用 systemd 和 Nginx。在已部署的机器上升级时，运行 `bash open-api/deploy.sh user@host`。该脚本使用现有的 Node 运行环境，保留旧域名入口，升级失败时恢复原有服务文件和配置。
+源站使用 systemd 和 Nginx，统一运行 `npm run deploy -- user@host`。首次安装会下载并校验 Node.js 运行环境，支持 Linux x64 和 arm64；升级复用已有运行环境。脚本测试同一仓库的完整应用，核对官方编译包和发布列表，检查失败时恢复原有文件和配置。旧根目录 API 入口、外部算法依赖和过期锁文件随应用切换清理。现有源站的部署目录、服务名称、域名和缓存目录保持一致。
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
 

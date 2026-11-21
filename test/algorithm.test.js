@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const algorithm = require('..');
+const algorithm = require('../src');
 const fixtures = require('./fixtures.json');
 
 for (const { name, input, template, urls } of fixtures) {

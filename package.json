@@ -1,14 +1,17 @@
 {
-  "name": "question-image-algorithm",
+  "name": "zerror-open",
+  "private": true,
   "version": "0.1.0",
-  "description": "Extract image URL candidates from question text while preserving surrounding text.",
+  "description": "ZError Open website, public APIs and verified website package distribution.",
   "license": "MIT",
   "type": "commonjs",
-  "main": "src/index.js",
+  "main": "open-api/server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
-    "test": "node --test"
+    "start": "node open-api/server.js",
+    "test": "node --test",
+    "deploy": "bash open-api/deploy.sh"
   }
 }
