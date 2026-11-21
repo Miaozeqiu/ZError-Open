@@ -9,7 +9,7 @@ function runGit(args, { signal, limit = 3 * 1024 * 1024, packDirectory } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error('GitHub Git transport timed out'));
     const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'credential.helper=',
-      '-c', 'init.templateDir=', '-c', 'http.followRedirects=false', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never',
+      '-c', 'init.templateDir=', '-c', 'http.version=HTTP/1.1', '-c', 'http.followRedirects=false', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never',
       '-c', 'http.lowSpeedLimit=1024', '-c', 'http.lowSpeedTime=5', ...args], {
       detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
@@ -83,9 +83,18 @@ async function withGitSource(site, work) {
   const repository = join(directory, 'repository');
   const signal = AbortSignal.timeout(20000);
   try {
-    await runGit(['clone', '--bare', '--depth=1', '--single-branch', '--branch', site.branch,
-      '--', 'https://github.com/' + site.repository + '.git', repository],
-    { signal, limit: 4096, packDirectory: join(repository, 'objects', 'pack') });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await runGit(['clone', '--bare', '--depth=1', '--single-branch', '--branch', site.branch,
+          '--', 'https://github.com/' + site.repository + '.git', repository],
+        { signal, limit: 4096, packDirectory: join(repository, 'objects', 'pack') });
+        break;
+      } catch (error) {
+        // Retry only transient read transport errors within the original deadline.
+        if (attempt || signal.aborted || error.message !== 'GitHub Git transport failed') throw error;
+        await rm(repository, { recursive: true, force: true });
+      }
+    }
     return await work(await readGitRepository(repository, site, signal));
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
