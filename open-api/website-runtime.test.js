@@ -60,3 +60,22 @@ test('corrupt compiled bytes are not promoted even when the Git blob is valid', 
   assert.equal((await fetch(url)).status, 503);
   assert.equal(requests(), count, 'failed source is rate limited');
 });
+
+test('verified binary resources larger than the former file limit travel in the same compiled snapshot', async t => {
+  const compiled = runtime(), bytes = Buffer.alloc(758936, 42);
+  compiled.resources = [{ id: 'font-reference', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), data: bytes.toString('base64') }];
+  const { url } = await sourceServer(t, compiled);
+  const response = await fetch(url);
+  assert.equal(response.status, 200);
+  const snapshot = await response.json();
+  assert.deepEqual(snapshot.runtime.resources, compiled.resources);
+  assert.equal(snapshot.files['font-reference'], undefined);
+});
+
+test('a valid Git blob cannot promote corrupted or oversized runtime resources', async t => {
+  for (const bad of [{ id: 'asset', size: 3, sha256: '0'.repeat(64), data: 'YWJj' }, { id: 'asset', size: 1048577, sha256: '0'.repeat(64), data: 'AA==' }]) {
+    const compiled = { ...runtime(), resources: [bad] };
+    const { url } = await sourceServer(t, compiled);
+    assert.equal((await fetch(url)).status, 503);
+  }
+});

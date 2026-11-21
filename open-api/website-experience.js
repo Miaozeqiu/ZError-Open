@@ -25,6 +25,19 @@ function runtimePackage(value) {
   const names = value.tools.map(tool => tool?.name);
   if (names.some(name => typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,23}$/.test(name))
     || new Set(names).size !== names.length) throw new Error('Invalid website tool names');
+  let total = 0;
+  const ids = new Set();
+  if (value.resources !== undefined) {
+    if (!Array.isArray(value.resources) || value.resources.length > 4) throw new Error('Invalid runtime resources');
+    for (const asset of value.resources) {
+      if (!asset || !/^[a-z][a-z0-9_-]{0,63}$/.test(asset.id || '') || ids.has(asset.id)
+        || !Number.isSafeInteger(asset.size) || asset.size < 1 || (total += asset.size) > 1024 * 1024
+        || typeof asset.data !== 'string' || asset.data.length !== Math.ceil(asset.size / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(asset.data)) throw new Error('Invalid runtime resource');
+      ids.add(asset.id);
+      const bytes = Buffer.from(asset.data, 'base64');
+      if (bytes.length !== asset.size || createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('Invalid runtime resource digest');
+    }
+  }
   return value;
 }
 
@@ -93,7 +106,7 @@ async function refreshSite(site, previous, fetchSource) {
     || typeof website.name !== 'string' || !website.name.trim() || website.name.length > 80 || !iconMatch) {
     throw new Error('Invalid experience manifest');
   }
-  const runtime = entries.has('runtime.json') ? runtimePackage(parseJson(await download('runtime.json', 512 * 1024))) : undefined;
+  const runtime = entries.has('runtime.json') ? runtimePackage(parseJson(await download('runtime.json', 2 * 1024 * 1024))) : undefined;
   const paths = [...entries.keys()].filter(path => path !== 'website.json' && path !== 'runtime.json' && path !== website.icon);
   if (!paths.includes('SKILL.md') || !paths.includes('site-graph.json') || paths.length > 32
     || paths.some(path => !documentPath.test(path))
