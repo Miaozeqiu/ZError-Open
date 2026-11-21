@@ -1,6 +1,7 @@
 const { createHash } = require('node:crypto');
 
 const sites = Object.freeze([
+  { id: 'zjooc', name: '在浙学', host: 'zjooc.cn', repository: 'Miaozeqiu/ZError-zjooc' },
   { id: 'chaoxing', name: '学习通', host: 'chaoxing.com', repository: 'Miaozeqiu/ZError-chaoxing' },
 ].map(site => ({ ...site, branch: 'main', root: 'skills/' + site.id, url: 'https://github.com/' + site.repository })));
 
@@ -11,6 +12,21 @@ const mime = { png: 'image/png', ico: 'image/x-icon', jpg: 'image/jpeg', jpeg: '
 const maxDocument = 512 * 1024;
 const maxPackage = 2 * 1024 * 1024;
 const refreshInterval = 10 * 60_000;
+
+// The client remains the authority for command/schema validation. Open verifies
+// the compiled bytes before promoting an atomic package into its source cache.
+function runtimePackage(value) {
+  if (value?.apiVersion !== 2 || typeof value.bundle?.code !== 'string'
+    || !value.bundle.code.trim() || Buffer.byteLength(value.bundle.code) > 256 * 1024
+    || !/^[a-f0-9]{64}$/.test(value.bundle.sha256 || '')
+    || createHash('sha256').update(value.bundle.code).digest('hex') !== value.bundle.sha256
+    || !Array.isArray(value.tools) || !value.tools.length || value.tools.length > 32
+    || Buffer.byteLength(JSON.stringify(value.tools)) > 64 * 1024) throw new Error('Invalid compiled website runtime');
+  const names = value.tools.map(tool => tool?.name);
+  if (names.some(name => typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,23}$/.test(name))
+    || new Set(names).size !== names.length) throw new Error('Invalid website tool names');
+  return value;
+}
 
 async function readBytes(response, limit) {
   if (!response.ok || !response.body) throw new Error('Invalid GitHub response');
@@ -77,7 +93,8 @@ async function refreshSite(site, previous, fetchSource) {
     || typeof website.name !== 'string' || !website.name.trim() || website.name.length > 80 || !iconMatch) {
     throw new Error('Invalid experience manifest');
   }
-  const paths = [...entries.keys()].filter(path => path !== 'website.json' && path !== website.icon);
+  const runtime = entries.has('runtime.json') ? runtimePackage(parseJson(await download('runtime.json', 512 * 1024))) : undefined;
+  const paths = [...entries.keys()].filter(path => path !== 'website.json' && path !== 'runtime.json' && path !== website.icon);
   if (!paths.includes('SKILL.md') || !paths.includes('site-graph.json') || paths.length > 32
     || paths.some(path => !documentPath.test(path))
     || paths.reduce((total, path) => total + entries.get(path).size, 0) > maxPackage) {
@@ -94,7 +111,7 @@ async function refreshSite(site, previous, fetchSource) {
     throw new Error('Invalid experience graph');
   }
   const icon = { path: website.icon, dataUrl: 'data:' + mime[iconMatch[1]] + ';base64,' + iconBytes.toString('base64') };
-  return { upstreamEtag, snapshot: { revision, files, website, icon } };
+  return { upstreamEtag, snapshot: { revision, files, website, icon, ...(runtime ? { runtime } : {}) } };
 }
 
 function createWebsiteExperience(fetchSource = fetch) {
