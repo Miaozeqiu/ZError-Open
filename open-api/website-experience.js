@@ -1,5 +1,6 @@
 const { createHash } = require('node:crypto');
 const { withGitSource } = require('./website-git-source');
+const { createSnapshotCache } = require('./website-snapshot-cache');
 
 const sites = Object.freeze([
   { id: 'chaoxing', name: '学习通', host: 'chaoxing.com', repository: 'Miaozeqiu/ZError-chaoxing' },
@@ -143,15 +144,45 @@ async function packageSnapshot(site, revision, upstreamEtag, entries, download) 
   return { upstreamEtag, snapshot: { revision, files, website, icon, ...(runtime ? { runtime } : {}) } };
 }
 
-function createWebsiteExperience(fetchSource = fetch, gitSource = withGitSource) {
+async function validateCachedSnapshot(site, value) {
+  const snapshot = value?.snapshot;
+  if (!shaPattern.test(snapshot?.revision || '') || !snapshot.files || Array.isArray(snapshot.files)
+    || !snapshot.icon || !iconPath.test(snapshot.icon.path || '') || snapshot.icon.path !== snapshot.website?.icon
+    || typeof snapshot.icon.dataUrl !== 'string' || snapshot.icon.dataUrl.length > 360 * 1024
+    || !/^data:image\/[a-z-]+;base64,[A-Za-z0-9+/]+={0,2}$/.test(snapshot.icon.dataUrl)) throw new Error('Invalid cached website');
+  const files = new Map();
+  for (const [path, text] of Object.entries(snapshot.files)) {
+    if (typeof text !== 'string') throw new Error('Invalid cached document');
+    files.set(path, Buffer.from(text));
+  }
+  files.set('website.json', Buffer.from(JSON.stringify(snapshot.website)));
+  files.set(snapshot.icon.path, Buffer.from(snapshot.icon.dataUrl.split(',')[1], 'base64'));
+  if (snapshot.runtime !== undefined) files.set('runtime.json', Buffer.from(JSON.stringify(snapshot.runtime)));
+  const entries = new Map([...files].map(([path, bytes]) => [path, { size: bytes.length }]));
+  return packageSnapshot(site, snapshot.revision, value.upstreamEtag, entries, async (path, limit) => {
+    const bytes = files.get(path);
+    if (!bytes || bytes.length > limit) throw new Error('Invalid cached file size');
+    return bytes;
+  });
+}
+
+function createWebsiteExperience(fetchSource = fetch, gitSource = withGitSource, directory) {
   const cache = new Map();
+  const persisted = createSnapshotCache(directory);
 
   return async function getExperience(site) {
     if (!cache.has(site.id)) cache.set(site.id, {});
     const state = cache.get(site.id);
+    state.restored ||= persisted.read(site, value => validateCachedSnapshot(site, value)).then(saved => {
+      if (saved) { state.value = saved.value; state.freshUntil = saved.savedAt + refreshInterval; }
+    });
+    await state.restored;
     const now = Date.now();
     if (state.value && now < state.freshUntil) return state.value.snapshot;
-    if (now < state.retryAt) throw new Error('Experience source temporarily unavailable');
+    if (now < state.retryAt) {
+      if (state.value) return state.value.snapshot;
+      throw new Error('Experience source temporarily unavailable');
+    }
     state.pending ||= refreshSite(site, state.value, fetchSource).catch(error => {
       if (!(error instanceof GitHubRateLimitError)) throw error;
       return gitSource(site, async ({ revision, entries, blob }) => {
@@ -165,14 +196,17 @@ function createWebsiteExperience(fetchSource = fetch, gitSource = withGitSource)
         return packageSnapshot(site, revision, undefined, entries, download);
       });
     })
-      .then(value => {
+      .then(async value => {
         state.value = value;
-        state.freshUntil = Date.now() + refreshInterval;
+        const checkedAt = Date.now();
+        state.freshUntil = checkedAt + refreshInterval;
         state.retryAt = 0;
+        await persisted.write(site, value, checkedAt).catch(() => console.warn('Verified website snapshot could not be persisted'));
         return value.snapshot;
       })
       .catch(error => {
         state.retryAt = Date.now() + 60_000;
+        if (state.value) return state.value.snapshot;
         throw error;
       })
       .finally(() => { state.pending = undefined; });

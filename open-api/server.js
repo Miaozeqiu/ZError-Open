@@ -123,7 +123,7 @@ function makeServer({
   const getReleaseList = createReleaseListFeed(releaseSource);
   const readAsset = createReleaseAssetSource(fetchDownloadSource);
   const installerCache = installerCacheDirectory && createInstallerCache(installerCacheDirectory, readAsset);
-  const getExperience = createWebsiteExperience(fetchWebsiteSource);
+  const getExperience = createWebsiteExperience(fetchWebsiteSource, undefined, installerCacheDirectory);
   const server = createServer({ requestTimeout: 10000, headersTimeout: 5000 }, async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('X-Content-Type-Options', 'nosniff');

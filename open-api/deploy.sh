@@ -18,6 +18,7 @@ app=/opt/zerror-open-api
 config=/etc/nginx/conf.d/zerror-open-api.conf
 unit=zerror-open-api.service
 unit_file=/etc/systemd/system/$unit
+cache=/var/cache/zerror-open-api
 backup="$stage/backup"
 if [ -r /etc/zerror-open-api-network.env ]; then
     export ZERROR_GITHUB_GIT_ADDRESS="$(sed -n 's/^ZERROR_GITHUB_GIT_ADDRESS=//p' /etc/zerror-open-api-network.env)"
@@ -89,11 +90,12 @@ fi
 
 "$node" --test "$stage/open-api/"*.test.js "$stage/test/"*.test.js
 # Confirm official compiled packages are available before replacing the service.
-"$node" - "$stage" <<'NODE'
+mkdir -p -m 0750 "$cache"
+"$node" - "$stage" "$cache" <<'NODE'
 const assert = require('node:assert/strict');
 const { sites, createWebsiteExperience } = require(process.argv[2] + '/open-api/website-experience');
 (async () => {
-    const getExperience = createWebsiteExperience();
+    const getExperience = createWebsiteExperience(undefined, undefined, process.argv[3]);
     for (const host of ['chaoxing.com', 'zjooc.cn']) {
         const snapshot = await getExperience(sites.find(site => site.host === host));
         assert.equal(snapshot.runtime?.apiVersion, 2, host + ' has no compiled runtime');
@@ -103,6 +105,9 @@ const { sites, createWebsiteExperience } = require(process.argv[2] + '/open-api/
     }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 NODE
+for site in chaoxing zjooc; do
+    chown --reference="$cache" "$cache/website-$site.json"
+done
 mutating=1
 if [ "$fresh" = 1 ]; then
     mkdir -p "$app"

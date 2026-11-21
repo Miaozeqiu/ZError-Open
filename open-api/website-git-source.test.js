@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises');
+const { mkdtemp, mkdir, writeFile, readFile, rm } = require('node:fs/promises');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const test = require('node:test');
@@ -60,4 +60,55 @@ test('Git fallback does not permit corrupted compiled bytes or bypass non-quota 
   });
   await assert.rejects(bad(fixture.site), /Invalid GitHub response/);
   await assert.rejects(withGitSource({ ...fixture.site, repository: 'different/repository' }, () => {}), /not an official/);
+});
+
+test('verified compiled snapshots survive a restart without contacting GitHub again', async t => {
+  const fixture = await repository(t);
+  const cache = await mkdtemp(join(tmpdir(), 'zerror-snapshot-cache-'));
+  t.after(() => rm(cache, { recursive: true, force: true }));
+  const fetchSource = async () => new Response('', { status: 429 });
+  const git = (site, work) => readGitRepository(fixture.directory, site).then(work);
+  const first = await createWebsiteExperience(fetchSource, git, cache)(fixture.site);
+  const forbidden = () => assert.fail('a fresh persisted snapshot must not fetch upstream');
+  const restarted = createWebsiteExperience(forbidden, forbidden, cache);
+  assert.deepEqual(await restarted(fixture.site), first);
+  assert.deepEqual(await restarted(fixture.site), first);
+});
+
+test('persisted snapshots recheck compiled hashes and website identity before use', async t => {
+  const fixture = await repository(t);
+  const cache = await mkdtemp(join(tmpdir(), 'zerror-snapshot-invalid-'));
+  t.after(() => rm(cache, { recursive: true, force: true }));
+  const fetchSource = async () => new Response('', { status: 429 });
+  const git = (site, work) => readGitRepository(fixture.directory, site).then(work);
+  const expected = await createWebsiteExperience(fetchSource, git, cache)(fixture.site);
+  const file = join(cache, 'website-chaoxing.json');
+  for (const tamper of [value => { value.snapshot.runtime.bundle.code += 'corrupt'; },
+    value => { value.snapshot.website.host = 'outside.example'; }]) {
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    tamper(record.value);
+    record.sha256 = createHash('sha256').update(JSON.stringify(record.value)).digest('hex');
+    await writeFile(file, JSON.stringify(record));
+    let refreshed = 0;
+    const get = createWebsiteExperience(fetchSource, async (...args) => { refreshed++; return git(...args); }, cache);
+    assert.deepEqual(await get(fixture.site), expected);
+    assert.equal(refreshed, 1);
+  }
+});
+
+test('temporary upstream failure keeps a verified persisted snapshot and backs off retries', async t => {
+  const fixture = await repository(t);
+  const cache = await mkdtemp(join(tmpdir(), 'zerror-snapshot-outage-'));
+  t.after(() => rm(cache, { recursive: true, force: true }));
+  const expected = await createWebsiteExperience(async () => new Response('', { status: 429 }),
+    (site, work) => readGitRepository(fixture.directory, site).then(work), cache)(fixture.site);
+  const file = join(cache, 'website-chaoxing.json');
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  record.savedAt = Date.now() - 11 * 60_000;
+  await writeFile(file, JSON.stringify(record));
+  let calls = 0;
+  const get = createWebsiteExperience(async () => { calls++; throw new Error('offline'); }, undefined, cache);
+  assert.deepEqual(await get(fixture.site), expected);
+  assert.deepEqual(await get(fixture.site), expected);
+  assert.equal(calls, 1);
 });

@@ -12,7 +12,8 @@ const runtime = `#!/usr/bin/env bash
 set -e
 if [ "\${1:-}" = --test ]; then exit 0; fi
 cat >/dev/null
-if [ "$#" = 2 ] && [ "\${FAIL_SOURCE:-0}" = 1 ]; then exit 1; fi
+if [ "$#" -gt 1 ] && [ "\${FAIL_SOURCE:-0}" = 1 ]; then exit 1; fi
+if [ "$#" = 3 ]; then mkdir -p "$3"; touch "$3/website-chaoxing.json" "$3/website-zjooc.json"; fi
 if [ "$#" = 1 ] && [ "\${FAIL_SMOKE:-0}" = 1 ]; then exit 1; fi
 `;
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -48,6 +49,7 @@ async function fixture(t, { fresh = false, corruptChecksum = false } = {}) {
   })) await put(join(stage, path), data);
   await put(join(bin, 'systemctl'), '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$MOCK_LOG"\n', 0o755);
   await put(join(bin, 'nginx'), '#!/usr/bin/env bash\nexit 0\n', 0o755);
+  await put(join(bin, 'chown'), '#!/usr/bin/env bash\nexit 0\n', 0o755);
   await put(join(bin, 'uname'), '#!/usr/bin/env bash\necho x86_64\n', 0o755);
   await put(join(bin, 'curl'), `#!/usr/bin/env bash
 output=''
@@ -76,6 +78,7 @@ if [ -n "$output" ]; then cp "$source" "$output"; fi
     .replace('app=/opt/zerror-open-api', 'app=' + quote(app))
     .replace('config=/etc/nginx/conf.d/zerror-open-api.conf', 'config=' + quote(config))
     .replace('unit_file=/etc/systemd/system/$unit', 'unit_file=' + quote(unit))
+    .replace('cache=/var/cache/zerror-open-api', 'cache=' + quote(join(root, 'cache')))
     .replaceAll('/etc/zerror-open-api-network.env', join(root, 'missing-network.env'));
   const program = join(root, 'deploy-remote.sh');
   await put(program, remote);
