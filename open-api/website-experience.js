@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const { withGitSource } = require('./website-git-source');
 
 const sites = Object.freeze([
   { id: 'chaoxing', name: '学习通', host: 'chaoxing.com', repository: 'Miaozeqiu/ZError-chaoxing' },
@@ -43,6 +44,10 @@ function runtimePackage(value) {
 }
 
 async function readBytes(response, limit) {
+  if (response.status === 429 || (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')) {
+    await response.body?.cancel();
+    throw new GitHubRateLimitError();
+  }
   if (!response.ok || !response.body) throw new Error('Invalid GitHub response');
   const reader = response.body.getReader();
   const chunks = [];
@@ -59,6 +64,8 @@ async function readBytes(response, limit) {
     await reader.cancel().catch(() => {});
   }
 }
+
+class GitHubRateLimitError extends Error {}
 
 function parseJson(bytes) {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -96,11 +103,19 @@ async function refreshSite(site, previous, fetchSource) {
       throw new Error('Invalid GitHub file response');
     }
     const bytes = Buffer.from(blob.content, 'base64');
-    const hash = createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
-    if (bytes.length !== entry.size || hash !== entry.sha) throw new Error('Experience file does not match the commit');
-    return bytes;
+    return verifyBlob(bytes, entry);
   }
 
+  return packageSnapshot(site, revision, upstreamEtag, entries, download);
+}
+
+function verifyBlob(bytes, entry) {
+  const hash = createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
+  if (bytes.length !== entry.size || hash !== entry.sha) throw new Error('Experience file does not match the commit');
+  return bytes;
+}
+
+async function packageSnapshot(site, revision, upstreamEtag, entries, download) {
   const website = parseJson(await download('website.json', 16 * 1024));
   const iconMatch = iconPath.exec(website?.icon);
   if (website?.version !== 1 || website.id !== site.id || website.host !== site.host
@@ -128,7 +143,7 @@ async function refreshSite(site, previous, fetchSource) {
   return { upstreamEtag, snapshot: { revision, files, website, icon, ...(runtime ? { runtime } : {}) } };
 }
 
-function createWebsiteExperience(fetchSource = fetch) {
+function createWebsiteExperience(fetchSource = fetch, gitSource = withGitSource) {
   const cache = new Map();
 
   return async function getExperience(site) {
@@ -137,7 +152,19 @@ function createWebsiteExperience(fetchSource = fetch) {
     const now = Date.now();
     if (state.value && now < state.freshUntil) return state.value.snapshot;
     if (now < state.retryAt) throw new Error('Experience source temporarily unavailable');
-    state.pending ||= refreshSite(site, state.value, fetchSource)
+    state.pending ||= refreshSite(site, state.value, fetchSource).catch(error => {
+      if (!(error instanceof GitHubRateLimitError)) throw error;
+      return gitSource(site, async ({ revision, entries, blob }) => {
+        if (state.value?.snapshot.revision === revision) return { ...state.value, upstreamEtag: undefined };
+        const download = async (path, limit) => {
+          const entry = entries.get(path);
+          if (entry?.type !== 'blob' || entry.mode !== '100644' || !shaPattern.test(entry.sha || '')
+            || !Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > limit) throw new Error('Invalid experience file');
+          return verifyBlob(await blob(entry.sha, limit), entry);
+        };
+        return packageSnapshot(site, revision, undefined, entries, download);
+      });
+    })
       .then(value => {
         state.value = value;
         state.freshUntil = Date.now() + refreshInterval;

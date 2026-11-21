@@ -26,11 +26,13 @@
 
 解析接口接受 UTF-8 JSON，文本上限为 8,192 个 JavaScript 字符串单元，请求体上限为 32 KiB。图片识别提取链接候选，不下载图片。
 
-需要 Node.js 18.17 或以上。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/server.test.js` 验证服务。
+需要 Node.js 18.17 或以上及 Git。运行 `node open-api/server.js`，本地页面为 `http://127.0.0.1:3015`。运行 `node --test open-api/*.test.js` 验证服务。
 
 现有源站使用 systemd 和 Nginx。在已部署的机器上升级时，运行 `bash open-api/deploy.sh user@host`。该脚本使用现有的 Node 运行环境，保留旧域名入口，升级失败时恢复原有服务文件和配置。
 
 官方经验从固定的公开 GitHub 仓库读取。Open 按提交下载并校验文件，收到请求时使用十分钟内的缓存，缓存过期后检查新版本。
+
+GitHub REST API 返回配额耗尽或限流时，Open 使用公开 Git 通道浅克隆固定官方仓库，从同一提交的 Git 对象读取文件，仍执行相同的文档、编译产物和资源校验。此路径不使用凭据、不检出工作目录，也不执行仓库脚本。临时仓库在结束后删除；传输限时 20 秒、仓库包限制 64 MiB、结果读取有大小上限。普通上游错误或校验失败不会绕过检查切换来源。
 
 软件更新读取 [ZError 主仓库的正式发布](https://github.com/Miaozeqiu/ZError/releases/latest)，缓存五分钟。官网使用公开发布列表中安装包的 `downloadUrl` 从 Open 下载，Open 每五分钟读取发布列表并预取最近两个正式版本的安装包。systemd 提供持久缓存目录，预取可续传，文件通过 GitHub 公布的大小和 SHA-256 校验后才启用本地缓存。冷缓存期间使用实时转发。
 
