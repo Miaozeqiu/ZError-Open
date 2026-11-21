@@ -106,6 +106,10 @@ const assert = require('node:assert/strict');
         assert.equal(snapshot.runtime?.apiVersion, 2, host + ' compiled runtime missing');
         assert.ok(snapshot.runtime.tools.length);
     }
+    const releases = await fetch('http://127.0.0.1:3015/v1/app-updates/releases', { signal: AbortSignal.timeout(15000) });
+    assert.equal(releases.status, 200, 'release list unavailable after deployment');
+    const feed = await releases.json();
+    assert.ok(feed.releases.some(release => release.installers?.length), 'installer metadata missing after deployment');
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 NODE
 nginx -t

@@ -3,6 +3,7 @@ const { createServer } = require('node:http');
 const { join } = require('node:path');
 const catalog = require('./models.json');
 const { createAppUpdateFeed, createReleaseListFeed } = require('./app-updates');
+const { createReleaseMetadataSource } = require('./release-metadata-cache');
 const { createReleaseAssetSource, streamInstaller, validRange } = require('./release-downloads');
 const { createInstallerCache, serveCachedInstaller } = require('./installer-cache');
 const { testModel } = require('./model-test');
@@ -117,8 +118,9 @@ function makeServer({
   fetchDownloadSource = fetch,
   installerCacheDirectory,
 } = {}) {
-  const getAppRelease = createAppUpdateFeed(fetchReleaseSource);
-  const getReleaseList = createReleaseListFeed(fetchReleaseSource);
+  const releaseSource = createReleaseMetadataSource(fetchReleaseSource, installerCacheDirectory);
+  const getAppRelease = createAppUpdateFeed(releaseSource);
+  const getReleaseList = createReleaseListFeed(releaseSource);
   const readAsset = createReleaseAssetSource(fetchDownloadSource);
   const installerCache = installerCacheDirectory && createInstallerCache(installerCacheDirectory, readAsset);
   const getExperience = createWebsiteExperience(fetchWebsiteSource);
