@@ -2,7 +2,7 @@
 
 打开 [ZError Open](https://open.zerrorai.com/)，查看模型配置、测试模型连接、验证题图识别算法，也可以浏览 Agent 的网站经验。
 
-本仓库是 Open 网站和服务端的统一应用。`open-api/server.js` 同时提供页面和接口，`open-api/public/` 存放页面资源，`src/` 是应用内的题图解析模块。网站包分发、发布列表和安装包缓存也由此服务处理，不需要单独的 API 工程或外部算法包。
+本仓库是 Open 网站和服务端的统一应用。`open-api/server.js` 同时提供页面和接口，`open-api/public/` 存放页面资源，`src/` 是应用内的题图解析模块。外部 Agent Skill、网站包分发、发布列表和安装包缓存也由此服务处理，不需要单独的 API 工程或外部算法包。
 
 ## 贡献
 
@@ -20,6 +20,12 @@ npm start
 ```
 
 访问 [本地预览](http://127.0.0.1:3015/)。提交前运行 `npm test`，GitHub Actions 使用同一测试入口。模型图标和接口说明见 [Open 服务文档](open-api/README.md)。
+
+## 外部 Agent Skill
+
+通用 `zerror` Skill 位于 [open-api/agent-skills/zerror](open-api/agent-skills/zerror/SKILL.md)，指导外部 Agent 通过已安装的 ZError CLI 管理配置、题库、浏览器和任务。它与网站经验独立维护，由 Open 的 `/v1/agent-skills` 接口分发。
+
+安装使用 `zerror skill install --agent codex`；也支持 Claude Code、Cursor、Pi、OpenCode 和自定义 skills 目录。检查和升级使用 `zerror skill check`、`zerror skill update`。软件运行时定期检查已登记的自动更新安装，本地修改会被保留。发布技能时提升 `SKILL.md` 的独立版本，并部署 Open；无需跟随桌面软件发版。
 
 ## 部署
 

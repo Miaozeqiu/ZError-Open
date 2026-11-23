@@ -1,3 +1,4 @@
+const { createAgentSkills } = require('./agent-skills');
 const { readFileSync } = require('node:fs');
 const { createServer } = require('node:http');
 const { join } = require('node:path');
@@ -118,6 +119,7 @@ function makeServer({
   fetchDownloadSource = fetch,
   installerCacheDirectory,
 } = {}) {
+  const serveAgentSkills = createAgentSkills();
   const releaseSource = createReleaseMetadataSource(fetchReleaseSource, installerCacheDirectory);
   const getAppRelease = createAppUpdateFeed(releaseSource);
   const getReleaseList = createReleaseListFeed(releaseSource);
@@ -130,6 +132,7 @@ function makeServer({
     response.setHeader('Cache-Control', 'no-store');
     const path = request.url.split('?')[0];
     const method = request.method;
+    if (serveAgentSkills(request, response, path)) return;
     if (path === '/health' && method === 'GET') return sendJson(response, 200, { status: 'ok' });
     if (method === 'GET' && path === '/website-repositories') {
       response.writeHead(308, { Location: '/website-experience' });

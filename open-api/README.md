@@ -47,3 +47,18 @@ GitHub 发布元数据也保存在 systemd 缓存目录，避免服务重启期�
 官方网站仓库在 `skills/<网站 id>/runtime.json` 发布编译工具包，包含 `apiVersion:2`、代码、SHA-256、工具定义及可选资源。Open 从同一 Git 提交读取文档、图谱、图标和运行包，校验 Git blob、执行代码与资源哈希后整体启用快照。运行包通过经验响应的 `runtime` 字段返回，不放进经验正文；接口继续使用现有路径，不新增版本路由或保留旧版脚本清单。执行代码最多 256 KiB、运行包文件最多 2 MiB，资源解码总量最多 1 MiB。客户端负责进一步校验命令和权限，并在隔离沙箱执行。
 
 官网在浏览器中读取发布列表。Open 每五分钟按请求刷新缓存，将 GitHub 标记的最新正式版放在列表首位。历史列表不可用时暂时返回最新正式版，并用 `partial` 标记结果。安装包地址来自 GitHub 正式发布。
+
+## 外部 Agent Skill 分发
+
+`agent-skills/zerror/` 是让外部 Agent 操作已安装桌面软件的通用技能，与网站经验运行包分开维护。`SKILL.md` 的 `metadata.version` 是独立发布版本；修改内容时必须提升版本号。服务启动时构建完整快照，部署整个 Open 应用即可发布，无需重新构建桌面软件。
+
+| 方法 | 路径 | 内容 |
+| --- | --- | --- |
+| GET / HEAD | `/v1/agent-skills` | 已发布技能、版本、清单与入口 URL |
+| GET / HEAD | `/v1/agent-skills/zerror` | 包含文件内容、大小、SHA-256 和 CLI 协议要求的完整包 |
+| GET / HEAD | `/v1/agent-skills/zerror/SKILL.md` | 可直接阅读的 Skill 入口 |
+| GET / HEAD | `/v1/agent-skills/zerror/references/cli.md` | 按需读取的 CLI 操作示例 |
+
+响应支持 ETag / 304 和一分钟公开缓存。完整包 revision 是 UTF-8 文本 SHA-256：`zerror-agent-skill:1\n`，随后是名称、版本、CLI 协议各一行，再按路径排序拼接每个文件的 `path\tbytes\tsha256\n`。桌面 CLI 不跟随重定向，校验每个文件和清单整体。
+
+安装示例：`zerror skill install --agent codex`（也支持 `claude`、`cursor`、`pi`、`opencode`、`shared` 或 `--dir`）。手动升级使用 `zerror skill update`。软件每六小时检查已登记的自动更新安装；本地修改不会被覆盖。宿主 Agent 的重载行为由其自身决定。普通 CLI 操作不会先读取 Open 或触发额外模型请求。
