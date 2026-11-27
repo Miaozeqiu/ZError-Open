@@ -121,7 +121,7 @@ function makeServer({
 } = {}) {
   const serveAgentSkills = createAgentSkills();
   const releaseSource = createReleaseMetadataSource(fetchReleaseSource, installerCacheDirectory);
-  const getAppRelease = createAppUpdateFeed(releaseSource);
+  const getAppRelease = createAppUpdateFeed(releaseSource, installerCacheDirectory);
   const getReleaseList = createReleaseListFeed(releaseSource);
   const readAsset = createReleaseAssetSource(fetchDownloadSource);
   const installerCache = installerCacheDirectory && createInstallerCache(installerCacheDirectory, readAsset);
@@ -188,7 +188,7 @@ function makeServer({
         const { releases } = await getReleaseList();
         const [, tag, revision, name] = download;
         const release = releases.find(item => item.tag === tag);
-        const installer = release?.installers.find(item => item.name === name);
+        const installer = release && [...release.installers, ...(release.updaters || [])].find(item => item.name === name);
         if (!installer || (revision && revision !== String(installer.assetId))) {
           return sendJson(response, 404, { error: 'unknown_installer' });
         }
@@ -281,7 +281,7 @@ function makeServer({
     return sendJson(response, 404, { error: 'not_found' });
   });
   if (installerCache) {
-    const prefetch = () => getReleaseList().then(installerCache.warm).catch(error => {
+    const prefetch = () => Promise.all([getReleaseList().then(installerCache.warm), getAppRelease()]).catch(error => {
       console.warn('Installer cache refresh: ' + error.message);
     });
     server.once('listening', () => {

@@ -1,3 +1,4 @@
+const { createSignatureReader } = require('./release-signatures');
 const releasePath = 'https://github.com/Miaozeqiu/ZError/releases/';
 const releasesApi = 'https://api.github.com/repos/Miaozeqiu/ZError/releases';
 const releaseApi = releasesApi + '/latest';
@@ -12,33 +13,6 @@ function releaseAsset(asset, tag) {
   if (typeof name !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(name)) return null;
   const url = releasePath + 'download/' + encodeURIComponent(tag) + '/' + encodeURIComponent(name);
   return asset.browser_download_url === url ? { name, url } : null;
-}
-
-async function readSignature(asset, request, signal) {
-  try {
-    const response = await request(asset.url, { signal });
-    if (!response.ok) return null;
-    const reader = response.body.getReader();
-    let text = '';
-    const decoder = new TextDecoder();
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        if (text.length > 4096) return null;
-      }
-    } finally {
-      await reader.cancel().catch(() => {});
-    }
-    const signature = (text + decoder.decode()).trim();
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signature)) return null;
-    // Tauri signs with minisign and wraps the signature file in base64.
-    const decoded = Buffer.from(signature, 'base64').toString('utf8');
-    return /^untrusted comment:.*\r?\n[A-Za-z0-9+/=]+\r?\ntrusted comment:/.test(decoded) ? signature : null;
-  } catch {
-    return null;
-  }
 }
 
 async function fetchReleasePage(request, signal) {
@@ -79,14 +53,17 @@ async function fetchReleaseMetadata(request, signal) {
   return response.json();
 }
 
-async function fetchRelease(request) {
+async function fetchRelease(request, readSignature) {
   const release = await fetchReleaseMetadata(request, AbortSignal.timeout(8000));
   if (!release) return null;
   const tag = release.tag_name;
   if (release.draft || release.prerelease || typeof tag !== 'string' || !stableTag.test(tag)) {
     throw new Error('Invalid stable release');
   }
-  const assets = new Map((release.assets || []).map(asset => releaseAsset(asset, tag)).filter(Boolean).map(asset => [asset.name, asset]));
+  const assets = new Map((release.assets || []).map(asset => {
+    const entry = releaseAsset(asset, tag);
+    return entry && { ...entry, assetId: asset.id };
+  }).filter(Boolean).map(asset => [asset.name, asset]));
   const installers = {};
   const platforms = {};
   const packages = new Map();
@@ -95,28 +72,28 @@ async function fetchRelease(request) {
     const name = asset.name.toLowerCase();
     const windows = /\.(exe|msi)$/.test(name);
     const mac = /\.(dmg|app\.tar\.gz)$/.test(name);
-    if (!windows && !mac) continue;
+    const linux = name.endsWith('.appimage');
+    if (!windows && !mac && !linux) continue;
     const token = name.match(archPattern)?.[1];
     const legacyWindows = /^zerror_setup_\d+\.\d+\.\d+\.exe$/.test(name);
     const arch = architectures[token] || token || (legacyWindows ? 'x86_64' : '');
     if (!arch || (arch === 'universal' && !mac)) continue;
-    const targets = arch === 'universal' ? ['darwin-aarch64', 'darwin-x86_64'] : [(windows ? 'windows-' : 'darwin-') + arch];
+    const targets = arch === 'universal' ? ['darwin-aarch64', 'darwin-x86_64'] : [(windows ? 'windows-' : linux ? 'linux-' : 'darwin-') + arch];
     for (const target of targets) {
-      if (windows || name.endsWith('.dmg')) {
-        if (!installers[target] || name.endsWith('.exe')) installers[target] = asset.url;
+      if (windows || linux || name.endsWith('.dmg')) {
+        if (!installers[target] || name.endsWith('.exe')) installers[target] = downloadUrl(asset, tag);
       }
       const signatureAsset = assets.get(asset.name + '.sig');
-      if (signatureAsset && (windows || name.endsWith('.app.tar.gz'))) {
+      if (signatureAsset && (windows || linux || name.endsWith('.app.tar.gz'))) {
         if (!packages.has(target) || name.endsWith('.exe')) packages.set(target, { asset, signatureAsset });
       }
     }
   }
   const signatures = new Map();
-  const signatureSignal = AbortSignal.timeout(8000);
   await Promise.all([...packages].map(async ([target, { asset, signatureAsset }]) => {
-    if (!signatures.has(signatureAsset.url)) signatures.set(signatureAsset.url, readSignature(signatureAsset, request, signatureSignal));
+    if (!signatures.has(signatureAsset.url)) signatures.set(signatureAsset.url, readSignature(signatureAsset));
     const signature = await signatures.get(signatureAsset.url);
-    if (signature) platforms[target] = { url: asset.url, signature };
+    if (signature) platforms[target] = { url: downloadUrl(asset, tag), signature };
   }));
   const notes = typeof release.body === 'string' ? release.body : '';
   const { published_at: published } = release;
@@ -134,14 +111,19 @@ async function fetchRelease(request) {
   };
 }
 
+function downloadUrl(asset, tag) {
+  return Number.isSafeInteger(asset.assetId) && asset.assetId > 0
+    ? 'https://open.zerrorai.com/v1/app-updates/download/' + tag + '/' + asset.assetId + '/' + asset.name : asset.url;
+}
+
 function publicInstaller(asset, tag) {
   if (!Number.isSafeInteger(asset?.id) || asset.id <= 0 || (asset.state && asset.state !== 'uploaded')) return null;
   const entry = releaseAsset(asset, tag);
   if (!entry || !/^zerror(?:[_.-]|$)/i.test(entry.name)) return null;
   const name = entry.name.toLowerCase();
-  const format = name.match(/\.(exe|msi|dmg|appimage|deb)$/)?.[1];
+  const format = name.match(/\.(exe|msi|dmg|appimage|deb|app\.tar\.gz)$/)?.[1];
   if (!format) return null;
-  const platform = format === 'exe' || format === 'msi' ? 'windows' : format === 'dmg' ? 'macos' : 'linux';
+  const platform = format === 'exe' || format === 'msi' ? 'windows' : (format === 'dmg' || format === 'app.tar.gz') ? 'macos' : 'linux';
   const token = name.match(archPattern)?.[1];
   const legacyWindows = /^zerror_setup_\d+\.\d+\.\d+\.exe$/.test(name);
   const arch = architectures[token] || token || (legacyWindows ? 'x86_64' : '');
@@ -164,7 +146,10 @@ function publicRelease(release) {
     releaseDate: Number.isFinite(Date.parse(release.published_at)) ? release.published_at : null,
     releaseUrl: releasePath + 'tag/' + encodeURIComponent(tag),
     notes: typeof release.body === 'string' ? release.body.slice(0, 20_000) : '',
-    installers: assets.map(asset => publicInstaller(asset, tag)).filter(Boolean),
+    installers: assets.map(asset => publicInstaller(asset, tag)).filter(asset => asset && asset.format !== 'app.tar.gz'),
+    ...(assets.some(asset => asset.name?.endsWith('.app.tar.gz')) ? {
+      updaters: assets.map(asset => publicInstaller(asset, tag)).filter(asset => asset?.format === 'app.tar.gz'),
+    } : {}),
   };
 }
 
@@ -214,8 +199,9 @@ function createCachedFeed(load, cacheFor = () => cacheDuration) {
   };
 }
 
-function createAppUpdateFeed(request = fetch) {
-  const getFeed = createCachedFeed(() => fetchRelease(request), result => result?.missingSignatures ? 30_000 : cacheDuration);
+function createAppUpdateFeed(request = fetch, directory) {
+  const readSignature = createSignatureReader(request, directory);
+  const getFeed = createCachedFeed(() => fetchRelease(request, readSignature), result => result?.missingSignatures ? 30_000 : cacheDuration);
   return async () => (await getFeed())?.release ?? null;
 }
 const createReleaseListFeed = (request = fetch) => createCachedFeed(() => fetchReleaseList(request));

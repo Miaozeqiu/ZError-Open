@@ -115,7 +115,7 @@ function createInstallerCache(directory, readAsset, report = console.warn) {
     const retained = new Set();
     for (const release of releases.slice(0, releaseLimit)) {
       let size = 0;
-      for (const installer of release.installers) {
+      for (const installer of [...release.installers, ...(release.updaters || [])]) {
         const name = cacheName(installer);
         if (!name || size + installer.size > releaseByteLimit) continue;
         size += installer.size;
